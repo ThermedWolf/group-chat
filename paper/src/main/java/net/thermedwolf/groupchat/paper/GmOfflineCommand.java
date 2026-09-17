@@ -24,6 +24,10 @@ public class GmOfflineCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!sender.hasPermission("groupchat.use")) {
+            sender.sendMessage(ChatFormat.color("&cYou don't have permission to use GroupChat."));
+            return true;
+        }
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Only players can use this command.");
             return true;

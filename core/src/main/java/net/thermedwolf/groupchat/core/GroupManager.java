@@ -2,6 +2,7 @@ package net.thermedwolf.groupchat.core;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
 
 import java.io.File;
@@ -14,6 +15,10 @@ import java.io.Reader;
 import java.io.Writer;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -30,6 +35,9 @@ import java.util.UUID;
  * casing is preserved for display.
  */
 public class GroupManager {
+
+    private static final Logger LOGGER = Logger.getLogger(GroupManager.class.getName());
+    private static final String NAME_PATTERN = "[A-Za-z0-9_]{2,24}";
 
     private final File file;
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
@@ -63,7 +71,7 @@ public class GroupManager {
 
     public synchronized boolean invite(String name, UUID target) {
         Group group = getGroup(name).orElse(null);
-        if (group == null || group.isMember(target)) {
+        if (group == null || group.isMember(target) || group.isInvited(target)) {
             return false;
         }
         group.getInvites().add(target);
@@ -100,8 +108,12 @@ public class GroupManager {
         group.getMembers().remove(player);
         if (group.getMembers().isEmpty()) {
             groups.remove(name.toLowerCase(Locale.ROOT));
+            LOGGER.log(Level.INFO, "Group ''{0}'' removed (no members left) after {1} left", new Object[]{group.getName(), player});
         } else if (group.getOwner().equals(player)) {
-            group.setOwner(group.getMembers().iterator().next());
+            UUID newOwner = group.getMembers().iterator().next();
+            group.setOwner(newOwner);
+            LOGGER.log(Level.INFO, "Ownership of group ''{0}'' transferred from {1} to {2}",
+                    new Object[]{group.getName(), player, newOwner});
         }
         save();
         return true;
@@ -158,11 +170,22 @@ public class GroupManager {
             }.getType();
             Map<String, Group> loaded = gson.fromJson(reader, type);
             if (loaded != null) {
+                Map<String, Group> validated = new LinkedHashMap<>();
+                for (Map.Entry<String, Group> entry : loaded.entrySet()) {
+                    String key = entry.getKey();
+                    Group group = entry.getValue();
+                    if (!isValidGroup(key, group)) {
+                        LOGGER.log(Level.WARNING, "Dropping invalid group entry key=''{0}'' during load", key);
+                        continue;
+                    }
+                    validated.put(key.toLowerCase(Locale.ROOT), group);
+                }
                 groups.clear();
-                groups.putAll(loaded);
+                groups.putAll(validated);
             }
-        } catch (IOException e) {
-            e.printStackTrace();
+        } catch (IOException | JsonSyntaxException e) {
+            LOGGER.log(Level.WARNING, "Failed to load groups.json (corrupt or unreadable). Backing up and starting empty.", e);
+            backupCorruptFile();
         }
     }
 
@@ -172,11 +195,47 @@ public class GroupManager {
             if (parent != null && !parent.exists()) {
                 parent.mkdirs();
             }
-            try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            File tmp = new File(parent, file.getName() + ".tmp");
+            try (Writer writer = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8)) {
                 gson.toJson(groups, writer);
             }
+            try {
+                Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException atomicFail) {
+                // Fallback when ATOMIC_MOVE not supported (FAT32, network mounts)
+                Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
-            e.printStackTrace();
+            LOGGER.log(Level.WARNING, "Failed to save groups.json", e);
+        }
+    }
+
+    private boolean isValidGroup(String key, Group group) {
+        if (group == null || key == null || group.getName() == null || group.getOwner() == null) {
+            return false;
+        }
+        if (!group.getName().matches(NAME_PATTERN)) {
+            return false;
+        }
+        if (!key.equalsIgnoreCase(group.getName())) {
+            return false;
+        }
+        if (group.getMembers() == null || group.getMembers().isEmpty()) {
+            return false;
+        }
+        if (!group.getMembers().contains(group.getOwner())) {
+            return false;
+        }
+        return true;
+    }
+
+    private void backupCorruptFile() {
+        try {
+            File backup = new File(file.getParentFile(), file.getName() + ".corrupt." + System.currentTimeMillis() + ".bak");
+            Files.copy(file.toPath(), backup.toPath());
+            LOGGER.log(Level.WARNING, "Corrupt groups.json backed up to {0}", backup.getName());
+        } catch (IOException ex) {
+            LOGGER.log(Level.WARNING, "Failed to backup corrupt groups.json", ex);
         }
     }
 }

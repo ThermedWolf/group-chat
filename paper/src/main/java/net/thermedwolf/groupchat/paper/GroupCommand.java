@@ -28,6 +28,10 @@ public class GroupCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!sender.hasPermission("groupchat.use")) {
+            sender.sendMessage(ChatFormat.color("&cYou don't have permission to use GroupChat."));
+            return true;
+        }
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Only players can use this command.");
             return true;
@@ -103,7 +107,7 @@ public class GroupCommand implements CommandExecutor, TabCompleter {
                     player.sendMessage(ChatFormat.color("&cUsage: /group members <name>"));
                     return true;
                 }
-                result = service.members(args[1]);
+                result = service.members(player.getUniqueId(), args[1]);
                 reply(player, result);
             }
             default -> player.sendMessage(

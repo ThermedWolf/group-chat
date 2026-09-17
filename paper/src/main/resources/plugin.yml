@@ -4,6 +4,13 @@ main: net.thermedwolf.groupchat.paper.GroupChatPlugin
 api-version: "26.3"
 author: ThermedWolf
 description: Group chat with an offline mailbox.
+permissions:
+  groupchat.use:
+    description: Use all GroupChat commands
+    default: true
+  groupchat.admin:
+    description: Admin bypass (reserved for future use)
+    default: op
 commands:
   group:
     description: Manage chat groups
@@ -20,7 +27,7 @@ commands:
     usage: "/dm <player> <message>"
   unread:
     description: View and clear your unread messages
-    usage: "/unread"
+    usage: "/unread [page|clear]"
   groupgui:
     description: Open the GroupChat menu
     usage: "/groupgui"

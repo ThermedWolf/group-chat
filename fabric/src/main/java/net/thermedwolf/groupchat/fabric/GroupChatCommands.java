@@ -75,7 +75,8 @@ public class GroupChatCommands {
                 .then(literal("members").then(argument("name", StringArgumentType.word())
                         .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
                         .executes(ctx -> run(ctx.getSource(),
-                                src -> service().members(StringArgumentType.getString(ctx, "name")))))));
+                                src -> service().members(player(src).getUUID(),
+                                        StringArgumentType.getString(ctx, "name")))))));
 
         registerGroupMessageCommand(dispatcher, "gmsg", false);
         registerGroupMessageCommand(dispatcher, "gm", false);
@@ -94,13 +95,36 @@ public class GroupChatCommands {
                                     return 1;
                                 }))));
 
-        dispatcher.register(literal("unread").executes(ctx -> {
-            CommandSourceStack source = ctx.getSource();
-            for (String line : service().viewAndClearUnread(player(source).getUUID())) {
-                source.sendSuccess(() -> Component.literal(line), false);
-            }
-            return 1;
-        }));
+        dispatcher.register(literal("unread")
+                .then(argument("page", StringArgumentType.word())
+                        .executes(ctx -> {
+                            CommandSourceStack source = ctx.getSource();
+                            String raw = StringArgumentType.getString(ctx, "page");
+                            if (raw.equalsIgnoreCase("clear")) {
+                                for (String line : service().viewAndClearUnread(player(source).getUUID())) {
+                                    source.sendSuccess(() -> Component.literal(line), false);
+                                }
+                                return 1;
+                            }
+                            try {
+                                int page = Integer.parseInt(raw);
+                                for (String line : service().viewUnreadPage(player(source).getUUID(), page)) {
+                                    source.sendSuccess(() -> Component.literal(line), false);
+                                }
+                            } catch (NumberFormatException ex) {
+                                for (String line : service().viewAndClearUnread(player(source).getUUID())) {
+                                    source.sendSuccess(() -> Component.literal(line), false);
+                                }
+                            }
+                            return 1;
+                        }))
+                .executes(ctx -> {
+                    CommandSourceStack source = ctx.getSource();
+                    for (String line : service().viewAndClearUnread(player(source).getUUID())) {
+                        source.sendSuccess(() -> Component.literal(line), false);
+                    }
+                    return 1;
+                }));
 
         dispatcher.register(literal("groupgui").executes(ctx -> {
             GroupChatMod.gui.openMainMenu(player(ctx.getSource()));

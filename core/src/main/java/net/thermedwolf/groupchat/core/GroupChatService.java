@@ -6,12 +6,16 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Platform-agnostic entry point. Paper and Fabric command handlers call
  * straight into this class and just relay the resulting text.
  */
 public class GroupChatService {
+
+    private static final Logger LOGGER = Logger.getLogger(GroupChatService.class.getName());
 
     private final GroupManager groupManager;
     private final MessageStore messageStore;
@@ -34,6 +38,9 @@ public class GroupChatService {
             return CommandResult.fail("&cGroup names must be 2-24 characters: letters, numbers, underscore.");
         }
         boolean created = groupManager.createGroup(name, uuid);
+        if (created) {
+            LOGGER.log(Level.INFO, "Group ''{0}'' created by {1}", new Object[]{name, uuid});
+        }
         return created
                 ? CommandResult.ok("&aGroup '" + name + "' created. You are the owner.")
                 : CommandResult.fail("&cA group with that name already exists.");
@@ -41,6 +48,9 @@ public class GroupChatService {
 
     public CommandResult deleteGroup(UUID uuid, String name) {
         boolean deleted = groupManager.deleteGroup(name, uuid);
+        if (deleted) {
+            LOGGER.log(Level.INFO, "Group ''{0}'' deleted by {1}", new Object[]{name, uuid});
+        }
         return deleted
                 ? CommandResult.ok("&aGroup '" + name + "' deleted.")
                 : CommandResult.fail("&cGroup not found, or you are not the owner.");
@@ -64,10 +74,14 @@ public class GroupChatService {
         if (group.isMember(target)) {
             return CommandResult.fail("&cThat player is already a member.");
         }
+        if (group.isInvited(target)) {
+            return CommandResult.fail("&cThat player already has a pending invite.");
+        }
 
         if (!groupManager.invite(groupName, target)) {
             return CommandResult.fail("&cCould not invite that player.");
         }
+        LOGGER.log(Level.INFO, "{0} invited {1} to group ''{2}''", new Object[]{uuid, target, group.getName()});
 
         if (bridge.isOnline(target)) {
             bridge.sendMessage(target, "&e[GroupChat] &7You've been invited to join '" + group.getName()
@@ -81,6 +95,7 @@ public class GroupChatService {
         if (!accepted) {
             return CommandResult.fail("&cNo pending invite for that group.");
         }
+        LOGGER.log(Level.INFO, "{0} accepted invite to group ''{1}''", new Object[]{uuid, groupName});
         groupManager.getGroup(groupName).ifPresent(group -> {
             String notice = "&e[GroupChat] &7" + bridge.getName(uuid) + " joined '" + group.getName() + "'.";
             for (UUID member : group.getMembers()) {
@@ -94,13 +109,32 @@ public class GroupChatService {
 
     public CommandResult declineInvite(UUID uuid, String groupName) {
         boolean declined = groupManager.declineInvite(groupName, uuid);
+        if (declined) {
+            LOGGER.log(Level.INFO, "{0} declined invite to group ''{1}''", new Object[]{uuid, groupName});
+        }
         return declined
                 ? CommandResult.ok("&7Invite declined.")
                 : CommandResult.fail("&cNo pending invite for that group.");
     }
 
     public CommandResult leaveGroup(UUID uuid, String groupName) {
+        // Capture owner before leave to detect transfer
+        Optional<Group> before = groupManager.getGroup(groupName);
+        UUID oldOwner = before.map(Group::getOwner).orElse(null);
         boolean left = groupManager.leaveGroup(groupName, uuid);
+        if (left) {
+            LOGGER.log(Level.INFO, "{0} left group ''{1}''", new Object[]{uuid, groupName});
+            // Notify new owner if ownership transferred
+            if (oldOwner != null && oldOwner.equals(uuid)) {
+                groupManager.getGroup(groupName).ifPresent(g -> {
+                    UUID newOwner = g.getOwner();
+                    if (!newOwner.equals(uuid) && bridge.isOnline(newOwner)) {
+                        bridge.sendMessage(newOwner,
+                                "&e[GroupChat] &7You are now the owner of '" + g.getName() + "' (previous owner left).");
+                    }
+                });
+            }
+        }
         return left
                 ? CommandResult.ok("&7You left '" + groupName + "'.")
                 : CommandResult.fail("&cYou are not a member of that group.");
@@ -129,6 +163,7 @@ public class GroupChatService {
         if (!groupManager.kickMember(groupName, target)) {
             return CommandResult.fail("&cCould not remove that player.");
         }
+        LOGGER.log(Level.INFO, "{0} kicked {1} from group ''{2}''", new Object[]{requester, target, group.getName()});
         if (bridge.isOnline(target)) {
             bridge.sendMessage(target, "&cYou were removed from '" + group.getName() + "'.");
         }
@@ -150,12 +185,15 @@ public class GroupChatService {
         return sb.toString();
     }
 
-    public CommandResult members(String groupName) {
+    public CommandResult members(UUID requester, String groupName) {
         Optional<Group> groupOpt = groupManager.getGroup(groupName);
         if (groupOpt.isEmpty()) {
             return CommandResult.fail("&cGroup not found.");
         }
         Group group = groupOpt.get();
+        if (!group.isMember(requester)) {
+            return CommandResult.fail("&cYou are not a member of that group.");
+        }
         StringBuilder sb = new StringBuilder("&7Members of '" + group.getName() + "': &e");
         Iterator<UUID> it = group.getMembers().iterator();
         while (it.hasNext()) {
@@ -171,11 +209,37 @@ public class GroupChatService {
         return CommandResult.ok(sb.toString());
     }
 
+    /** Backwards-compatible overload — prefer members(UUID, String). */
+    @Deprecated
+    public CommandResult members(String groupName) {
+        return CommandResult.fail("&cUsage: /group members requires membership check — call members(requester, name).");
+    }
+
+    private static String validateAndSanitizeMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return null;
+        }
+        String sanitized = ChatFormat.sanitizeUserText(message).trim();
+        if (sanitized.length() > MessageStore.MAX_MESSAGE_LENGTH) {
+            return null;
+        }
+        return sanitized;
+    }
+
     /**
      * Sends a message to every member of a group. Online members get it
      * immediately; offline members get it queued in their mailbox.
      */
     public CommandResult sendGroupMessage(UUID sender, String groupName, String message) {
+        String sanitized = validateAndSanitizeMessage(message);
+        if (sanitized == null) {
+            if (message != null && ChatFormat.sanitizeUserText(message).trim().length() > MessageStore.MAX_MESSAGE_LENGTH) {
+                return CommandResult.fail("&cMessage too long (max " + MessageStore.MAX_MESSAGE_LENGTH + " characters).");
+            }
+            return CommandResult.fail("&cMessage cannot be empty.");
+        }
+        message = sanitized;
+
         Optional<Group> groupOpt = groupManager.getGroup(groupName);
         if (groupOpt.isEmpty()) {
             return CommandResult.fail("&cGroup not found.");
@@ -192,7 +256,12 @@ public class GroupChatService {
             if (bridge.isOnline(member)) {
                 bridge.sendMessage(member, formatted);
             } else if (!member.equals(sender)) {
-                messageStore.addMessage(member, new PendingMessage(sender, bridge.getName(sender), group.getName(), message, now));
+                boolean queued = messageStore.addMessage(member,
+                        new PendingMessage(sender, bridge.getName(sender), group.getName(), message, now));
+                if (!queued) {
+                    bridge.sendMessage(sender,
+                            "&cMailbox full for " + bridge.getName(member) + " (" + MessageStore.MAX_MAILBOX_SIZE + "/" + MessageStore.MAX_MAILBOX_SIZE + ") — message not queued for them.");
+                }
             }
         }
         return CommandResult.ok(null);
@@ -206,6 +275,15 @@ public class GroupChatService {
      * scrollback (announcements, important group updates, etc).
      */
     public CommandResult sendGroupMessagePersistent(UUID sender, String groupName, String message) {
+        String sanitized = validateAndSanitizeMessage(message);
+        if (sanitized == null) {
+            if (message != null && ChatFormat.sanitizeUserText(message).trim().length() > MessageStore.MAX_MESSAGE_LENGTH) {
+                return CommandResult.fail("&cMessage too long (max " + MessageStore.MAX_MESSAGE_LENGTH + " characters).");
+            }
+            return CommandResult.fail("&cMessage cannot be empty.");
+        }
+        message = sanitized;
+
         Optional<Group> groupOpt = groupManager.getGroup(groupName);
         if (groupOpt.isEmpty()) {
             return CommandResult.fail("&cGroup not found.");
@@ -223,7 +301,12 @@ public class GroupChatService {
                 bridge.sendMessage(member, formatted);
             }
             if (!member.equals(sender)) {
-                messageStore.addMessage(member, new PendingMessage(sender, bridge.getName(sender), group.getName(), message, now));
+                boolean queued = messageStore.addMessage(member,
+                        new PendingMessage(sender, bridge.getName(sender), group.getName(), message, now));
+                if (!queued) {
+                    bridge.sendMessage(sender,
+                            "&cMailbox full for " + bridge.getName(member) + " (" + MessageStore.MAX_MAILBOX_SIZE + "/" + MessageStore.MAX_MAILBOX_SIZE + ") — message not queued for them.");
+                }
             }
         }
         return CommandResult.ok(null);
@@ -233,6 +316,15 @@ public class GroupChatService {
      * Sends (or queues, if offline) a private message to a single player.
      */
     public CommandResult sendDirectMessage(UUID sender, String targetName, String message) {
+        String sanitized = validateAndSanitizeMessage(message);
+        if (sanitized == null) {
+            if (message != null && ChatFormat.sanitizeUserText(message).trim().length() > MessageStore.MAX_MESSAGE_LENGTH) {
+                return CommandResult.fail("&cMessage too long (max " + MessageStore.MAX_MESSAGE_LENGTH + " characters).");
+            }
+            return CommandResult.fail("&cMessage cannot be empty.");
+        }
+        message = sanitized;
+
         Optional<UUID> targetOpt = bridge.getUuidByName(targetName);
         if (targetOpt.isEmpty()) {
             return CommandResult.fail("&cPlayer '" + targetName + "' was not found.");
@@ -248,7 +340,11 @@ public class GroupChatService {
             return CommandResult.ok(null);
         }
 
-        messageStore.addMessage(target, new PendingMessage(sender, bridge.getName(sender), null, message, System.currentTimeMillis()));
+        boolean queued = messageStore.addMessage(target,
+                new PendingMessage(sender, bridge.getName(sender), null, message, System.currentTimeMillis()));
+        if (!queued) {
+            return CommandResult.fail("&c" + bridge.getName(target) + "'s mailbox is full (" + MessageStore.MAX_MAILBOX_SIZE + "/" + MessageStore.MAX_MAILBOX_SIZE + "). Try again later.");
+        }
         return CommandResult.ok("&7" + bridge.getName(target) + " is offline. Your message will be delivered when they join.");
     }
 
@@ -265,10 +361,46 @@ public class GroupChatService {
         List<String> lines = new ArrayList<>();
         lines.add(ChatFormat.color("&e--- " + messages.size() + " unread message" + (messages.size() == 1 ? "" : "s") + " ---"));
         for (PendingMessage m : messages) {
-            String context = m.getContext() != null ? "&8[&d" + m.getContext() + "&8] " : "&8[&bPM&8] ";
-            lines.add(ChatFormat.color(context + "&f" + m.getFromName() + "&7: &f" + m.getMessage()));
+            String ctx = m.getContext() != null ? ChatFormat.sanitizeUserText(m.getContext()) : null;
+            String from = ChatFormat.sanitizeUserText(m.getFromName());
+            String msg = ChatFormat.sanitizeUserText(m.getMessage());
+            String context = ctx != null ? "&8[&d" + ctx + "&8] " : "&8[&bPM&8] ";
+            lines.add(ChatFormat.color(context + "&f" + from + "&7: &f" + msg));
         }
         messageStore.clearMessages(uuid);
+        return lines;
+    }
+
+    /**
+     * Paginated view without clearing. Page is 1-indexed for UX, 10 per page.
+     */
+    public List<String> viewUnreadPage(UUID uuid, int page) {
+        if (page < 1) {
+            page = 1;
+        }
+        int pageSize = 10;
+        int total = messageStore.getUnreadCount(uuid);
+        if (total == 0) {
+            return List.of(ChatFormat.color("&7You have no unread messages."));
+        }
+        int totalPages = (total + pageSize - 1) / pageSize;
+        if (page > totalPages) {
+            page = totalPages;
+        }
+        List<PendingMessage> messages = messageStore.getMessagesPaged(uuid, page - 1, pageSize);
+        List<String> lines = new ArrayList<>();
+        lines.add(ChatFormat.color("&e--- Unread " + total + " messages — page " + page + "/" + totalPages + " ---"));
+        for (PendingMessage m : messages) {
+            String ctx = m.getContext() != null ? ChatFormat.sanitizeUserText(m.getContext()) : null;
+            String from = ChatFormat.sanitizeUserText(m.getFromName());
+            String msg = ChatFormat.sanitizeUserText(m.getMessage());
+            String context = ctx != null ? "&8[&d" + ctx + "&8] " : "&8[&bPM&8] ";
+            lines.add(ChatFormat.color(context + "&f" + from + "&7: &f" + msg));
+        }
+        if (totalPages > 1) {
+            lines.add(ChatFormat.color("&7Use &e/unread " + (page < totalPages ? page + 1 : 1) + "&7 to see "
+                    + (page < totalPages ? "next" : "first") + " page, &e/unread clear&7 to clear all."));
+        }
         return lines;
     }
 

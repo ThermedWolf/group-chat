@@ -15,9 +15,9 @@ java {
 }
 
 dependencies {
-    // "26.3.build.+" resolves to the latest published build for 26.3.
-    // Pin to a specific build (e.g. 26.3.build.8-alpha) if you want reproducible builds.
-    compileOnly("io.papermc.paper:paper-api:26.3.build.+")
+    // Pinned for reproducible builds — bump manually after testing against a new Paper build.
+    // Candidate: 26.3.build.8-alpha is cached locally; check https://repo.papermc.io for newer.
+    compileOnly("io.papermc.paper:paper-api:26.3.build.8-alpha")
     implementation(project(":core"))
 }
 
