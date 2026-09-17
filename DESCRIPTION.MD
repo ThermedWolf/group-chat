@@ -15,6 +15,8 @@ Available for **both Paper and Fabric** — same features, same commands, same d
 - **Guaranteed delivery option** — `/gmoffline` drops a copy into _every_ member's mailbox, online or not, for anything you want to be sure isn't lost in chat scrollback
 - **Direct messages** — `/dm` for one-on-one, queued automatically if the recipient's offline
 - **Full group management** — create, invite, accept/decline, leave, and owner-only kick
+- **Message history** — last 5 messages per group, per player (`/group history`, `/gmsg history`) — so you can catch up after being AFK
+- **Toggle chat** — lock your chat to a group (`/group toggle`) and just type normally, no prefix needed until you toggle off or type `cancel`
 - **Graphical menu** — `/groupgui` opens a point-and-click interface for creating groups, browsing your groups, inviting or kicking members, and picking who to message, if you'd rather not remember command syntax
 - **Tab-completion everywhere** — group names, player names, and pending invites all autocomplete
 - **Zero external dependencies** — just the plugin/mod, no other downloads required beyond Fabric API on the Fabric side
@@ -37,8 +39,10 @@ Available for **both Paper and Fabric** — same features, same commands, same d
 | `/group members <group>`                           | List a group's members                                                                |
 | `/gmsg <group> <message>` (alias `/gm`)            | Message a group — online members see it live, offline members get it queued           |
 | `/gmoffline <group> <message>`                     | Same, but _everyone_ gets a durable copy in their mailbox regardless of online status |
+| `/gmsg history [group] [1-5]` / `/group history`   | View last 5 messages of a group (omit group if in exactly 1)                          |
+| `/gmsg toggle [group]` / `/group toggle [group]`   | Toggle chat mode — next chat lines go to that group until toggled off / `cancel`      |
 | `/dm <player> <message>`                           | Private message; queued if they're offline                                            |
-| `/unread`                                          | Read and clear your queued messages                                                   |
+| `/unread [page\|clear]`                            | Read and clear your queued messages (paginated)                                       |
 | `/groupgui`                                        | Open the graphical menu                                                               |
 
 ![Managing a group](https://cdn.modrinth.com/data/cached_images/6507e2c3fcbe5ce404ff263ec6c14610b34823fc_0.webp)
@@ -53,10 +57,10 @@ Available for **both Paper and Fabric** — same features, same commands, same d
 
 ## Data & privacy
 
-All group and message data is stored locally on your server (`plugins/Group Chat/` on Paper, `<world>/Group Chat/` on Fabric) as plain JSON — nothing is sent anywhere else.
+All group and message data is stored locally on your server (`plugins/GroupChat/` on Paper, `groupchat/` on Fabric — via `FabricLoader.getGameDir()`) as plain JSON — nothing is sent anywhere else.
 
 ## Notes
 
 - Group names: 2–24 characters, letters/numbers/underscores, case-insensitive
-- No permission-node gating yet — any player can use any command
-- Unread messages don't keep history once read via `/unread`
+- Permissions: `groupchat.use` (default `true`) gates all commands, `groupchat.admin` (default `op`, reserved)
+- Mailbox: hard caps 500 chars / 200 messages per player, `§` sanitized, expired (>30d) pruned; group history keeps last 5 per group regardless of mailbox (`/group history`)
