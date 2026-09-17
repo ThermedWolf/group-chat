@@ -1,0 +1,26 @@
+name: GroupChat
+version: "${version}"
+main: net.thermedwolf.groupchat.paper.GroupChatPlugin
+api-version: "26.3"
+author: ThermedWolf
+description: Group chat with an offline mailbox.
+commands:
+  group:
+    description: Manage chat groups
+    usage: "/group <create|delete|invite|accept|decline|leave|kick|list|members> [args]"
+  gmsg:
+    description: Send a message to a group
+    usage: "/gmsg <group> <message>"
+    aliases: [gm]
+  gmoffline:
+    description: Send a group message that's guaranteed to be in everyone's mailbox, online or not
+    usage: "/gmoffline <group> <message>"
+  dm:
+    description: Send a private message to a player (queues if they're offline)
+    usage: "/dm <player> <message>"
+  unread:
+    description: View and clear your unread messages
+    usage: "/unread"
+  groupgui:
+    description: Open the GroupChat menu
+    usage: "/groupgui"

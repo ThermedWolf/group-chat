@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "groupchat",
+  "version": "${version}",
+  "name": "GroupChat",
+  "description": "Group chat with an offline mailbox.",
+  "authors": ["ThermedWolf"],
+  "environment": "server",
+  "entrypoints": {
+    "server": ["net.thermedwolf.groupchat.fabric.GroupChatMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "fabric-api": "*",
+    "minecraft": ">=26.3"
+  }
+}
