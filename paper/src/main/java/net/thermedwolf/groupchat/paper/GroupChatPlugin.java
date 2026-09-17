@@ -37,6 +37,7 @@ public class GroupChatPlugin extends JavaPlugin {
         getCommand("groupgui").setExecutor(new GroupGuiCommand(gui));
 
         getServer().getPluginManager().registerEvents(new JoinListener(service), this);
+        getServer().getPluginManager().registerEvents(new QuitListener(service), this);
         getServer().getPluginManager().registerEvents(new GuiListener(service, gui), this);
         getServer().getPluginManager().registerEvents(new ChatComposeListener(service, this), this);
 

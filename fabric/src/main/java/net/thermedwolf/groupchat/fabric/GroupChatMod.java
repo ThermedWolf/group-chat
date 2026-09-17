@@ -50,16 +50,27 @@ public class GroupChatMod implements DedicatedServerModInitializer {
             }
         });
 
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            if (service != null) {
+                service.clearToggleOnDisconnect(handler.player.getUUID());
+            }
+        });
+
         // Confirmed against the actual fabric-message-api-v1 jar: the event field
         // is ALLOW_CHAT_MESSAGE and the callback signature is
         // allowChatMessage(PlayerChatMessage, ServerPlayer, ChatType.Bound) -> boolean.
         ServerMessageEvents.ALLOW_CHAT_MESSAGE.register((message, senderPlayer, params) -> {
-            if (service == null || !service.isComposing(senderPlayer.getUUID())) {
+            if (service == null) {
+                return true;
+            }
+            // unified intercept: compose has priority, then toggle
+            java.util.UUID uuid = senderPlayer.getUUID();
+            if (!service.isComposing(uuid) && !service.isToggled(uuid)) {
                 return true;
             }
             String plain = message.signedContent();
-            service.tryHandleChatAsCompose(senderPlayer.getUUID(), plain);
-            return false;
+            boolean consumed = service.handleChatIntercept(uuid, plain);
+            return !consumed;
         });
     }
 

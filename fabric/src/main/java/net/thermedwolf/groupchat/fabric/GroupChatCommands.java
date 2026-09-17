@@ -1,6 +1,7 @@
 package net.thermedwolf.groupchat.fabric;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -32,51 +33,174 @@ public class GroupChatCommands {
                         .executes(ctx -> run(ctx.getSource(),
                                 src -> service().createGroup(player(src).getUUID(),
                                         StringArgumentType.getString(ctx, "name"))))))
-                .then(literal("delete").then(argument("name", StringArgumentType.word())
-                        .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                // delete: supports both /group delete <name> and /group delete (infer) and /group <name> delete
+                .then(literal("delete")
+                        .then(argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().deleteGroup(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "name")))))
                         .executes(ctx -> run(ctx.getSource(),
-                                src -> service().deleteGroup(player(src).getUUID(),
-                                        StringArgumentType.getString(ctx, "name"))))))
-                .then(literal("invite").then(argument("name", StringArgumentType.word())
-                        .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                src -> service().deleteGroup(player(src).getUUID(), null))))
+                // invite: /group invite <name> <player> and shorthand /group invite <player>
+                .then(literal("invite")
+                        .then(argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                .then(argument("player", StringArgumentType.word())
+                                        .suggests(GroupChatCommands::suggestOtherOnlinePlayers)
+                                        .executes(ctx -> run(ctx.getSource(), src -> service().invite(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "name"),
+                                                StringArgumentType.getString(ctx, "player"))))))
                         .then(argument("player", StringArgumentType.word())
                                 .suggests(GroupChatCommands::suggestOtherOnlinePlayers)
                                 .executes(ctx -> run(ctx.getSource(), src -> service().invite(player(src).getUUID(),
-                                        StringArgumentType.getString(ctx, "name"),
-                                        StringArgumentType.getString(ctx, "player")))))))
-                .then(literal("accept").then(argument("name", StringArgumentType.word())
-                        .suggests((ctx, builder) -> suggestInvitedGroups(ctx, builder))
+                                        null, StringArgumentType.getString(ctx, "player"))))))
+                .then(literal("accept")
+                        .then(argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestInvitedGroups(ctx, builder))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().acceptInvite(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "name")))))
                         .executes(ctx -> run(ctx.getSource(),
-                                src -> service().acceptInvite(player(src).getUUID(),
-                                        StringArgumentType.getString(ctx, "name"))))))
-                .then(literal("decline").then(argument("name", StringArgumentType.word())
-                        .suggests((ctx, builder) -> suggestInvitedGroups(ctx, builder))
+                                src -> service().acceptInvite(player(src).getUUID(), null))))
+                .then(literal("decline")
+                        .then(argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestInvitedGroups(ctx, builder))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().declineInvite(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "name")))))
                         .executes(ctx -> run(ctx.getSource(),
-                                src -> service().declineInvite(player(src).getUUID(),
-                                        StringArgumentType.getString(ctx, "name"))))))
-                .then(literal("leave").then(argument("name", StringArgumentType.word())
-                        .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                src -> service().declineInvite(player(src).getUUID(), null))))
+                .then(literal("leave")
+                        .then(argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().leaveGroup(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "name")))))
                         .executes(ctx -> run(ctx.getSource(),
-                                src -> service().leaveGroup(player(src).getUUID(),
-                                        StringArgumentType.getString(ctx, "name"))))))
-                .then(literal("kick").then(argument("name", StringArgumentType.word())
-                        .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                src -> service().leaveGroup(player(src).getUUID(), null))))
+                .then(literal("kick")
+                        .then(argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                .then(argument("player", StringArgumentType.word())
+                                        .suggests(GroupChatCommands::suggestOtherOnlinePlayers)
+                                        .executes(ctx -> run(ctx.getSource(), src -> service().kickMember(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "name"),
+                                                StringArgumentType.getString(ctx, "player"))))))
                         .then(argument("player", StringArgumentType.word())
                                 .suggests(GroupChatCommands::suggestOtherOnlinePlayers)
                                 .executes(ctx -> run(ctx.getSource(), src -> service().kickMember(player(src).getUUID(),
-                                        StringArgumentType.getString(ctx, "name"),
-                                        StringArgumentType.getString(ctx, "player")))))))
+                                        null, StringArgumentType.getString(ctx, "player"))))))
                 .then(literal("list").executes(ctx -> {
                     CommandSourceStack source = ctx.getSource();
                     String text = ChatFormat.color(service().listGroupsFormatted(player(source).getUUID()));
                     source.sendSuccess(() -> Component.literal(text), false);
                     return 1;
                 }))
-                .then(literal("members").then(argument("name", StringArgumentType.word())
-                        .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                .then(literal("members")
+                        .then(argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().members(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "name")))))
                         .executes(ctx -> run(ctx.getSource(),
-                                src -> service().members(player(src).getUUID(),
-                                        StringArgumentType.getString(ctx, "name")))))));
+                                src -> service().members(player(src).getUUID(), null))))
+                // history: /group history [count|group] [count]
+                .then(literal("history")
+                        .then(argument("count", IntegerArgumentType.integer(1, 5))
+                                .executes(ctx -> {
+                                    int count = IntegerArgumentType.getInteger(ctx, "count");
+                                    CommandSourceStack source = ctx.getSource();
+                                    for (String line : service().getGroupHistory(player(source).getUUID(), null, count)) {
+                                        source.sendSuccess(() -> Component.literal(line), false);
+                                    }
+                                    return 1;
+                                }))
+                        .then(argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                .then(argument("count", IntegerArgumentType.integer(1, 5))
+                                        .executes(ctx -> {
+                                            String name = StringArgumentType.getString(ctx, "name");
+                                            // try treat name as count if numeric
+                                            try {
+                                                int maybeCount = Integer.parseInt(name);
+                                                if (maybeCount >= 1 && maybeCount <= 5) {
+                                                    int count = maybeCount;
+                                                    CommandSourceStack source = ctx.getSource();
+                                                    for (String line : service().getGroupHistory(player(source).getUUID(), null, count)) {
+                                                        source.sendSuccess(() -> Component.literal(line), false);
+                                                    }
+                                                    return 1;
+                                                }
+                                            } catch (NumberFormatException ignore) {}
+                                            int count = IntegerArgumentType.getInteger(ctx, "count");
+                                            CommandSourceStack source = ctx.getSource();
+                                            for (String line : service().getGroupHistory(player(source).getUUID(), name, count)) {
+                                                source.sendSuccess(() -> Component.literal(line), false);
+                                            }
+                                            return 1;
+                                        }))
+                                .executes(ctx -> {
+                                    String name = StringArgumentType.getString(ctx, "name");
+                                    try {
+                                        int count = Integer.parseInt(name);
+                                        if (count >= 1 && count <= 5) {
+                                            CommandSourceStack source = ctx.getSource();
+                                            for (String line : service().getGroupHistory(player(source).getUUID(), null, count)) {
+                                                source.sendSuccess(() -> Component.literal(line), false);
+                                            }
+                                            return 1;
+                                        }
+                                    } catch (NumberFormatException ignore) {}
+                                    CommandSourceStack source = ctx.getSource();
+                                    for (String line : service().getGroupHistory(player(source).getUUID(), name, 5)) {
+                                        source.sendSuccess(() -> Component.literal(line), false);
+                                    }
+                                    return 1;
+                                }))
+                        .executes(ctx -> {
+                            CommandSourceStack source = ctx.getSource();
+                            for (String line : service().getGroupHistory(player(source).getUUID(), null, 5)) {
+                                source.sendSuccess(() -> Component.literal(line), false);
+                            }
+                            return 1;
+                        }))
+                // toggle: /group toggle [name]
+                .then(literal("toggle")
+                        .then(argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().toggleGroupChat(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "name")))))
+                        .executes(ctx -> run(ctx.getSource(),
+                                src -> service().toggleGroupChat(player(src).getUUID(), null))))
+                // support "group-first" syntax via sub-nodes: /group <name> history|toggle
+                // This is done by registering a generic word argument that branches if matches a group name
+                // But Brigadier ambiguous; we handle via execution-time check using a dynamic argument:
+                .then(argument("groupName", StringArgumentType.word())
+                        .then(literal("history")
+                                .then(argument("count", IntegerArgumentType.integer(1, 5))
+                                        .executes(ctx -> {
+                                            String g = StringArgumentType.getString(ctx, "groupName");
+                                            int count = IntegerArgumentType.getInteger(ctx, "count");
+                                            CommandSourceStack source = ctx.getSource();
+                                            for (String line : service().getGroupHistory(player(source).getUUID(), g, count)) {
+                                                source.sendSuccess(() -> Component.literal(line), false);
+                                            }
+                                            return 1;
+                                        }))
+                                .executes(ctx -> {
+                                    String g = StringArgumentType.getString(ctx, "groupName");
+                                    CommandSourceStack source = ctx.getSource();
+                                    for (String line : service().getGroupHistory(player(source).getUUID(), g, 5)) {
+                                        source.sendSuccess(() -> Component.literal(line), false);
+                                    }
+                                    return 1;
+                                }))
+                        .then(literal("toggle")
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().toggleGroupChat(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "groupName")))))));
 
         registerGroupMessageCommand(dispatcher, "gmsg", false);
         registerGroupMessageCommand(dispatcher, "gm", false);
@@ -133,25 +257,122 @@ public class GroupChatCommands {
     }
 
     /**
-     * /gmsg, /gm (alias), and /gmoffline (persistent variant) all share this shape.
+     * /gmsg, /gm (alias), and /gmoffline (persistent variant).
+     * Now supports omitted group when player has exactly one group: /gmsg <message>
+     * plus toggle/history shortcuts: /gmsg toggle [group], /gmsg history [group] [count],
+     * and group-first: /gmsg <group> toggle, /gmsg <group> history [count]
      */
     private static void registerGroupMessageCommand(CommandDispatcher<CommandSourceStack> dispatcher, String name,
             boolean persistent) {
         LiteralArgumentBuilder<CommandSourceStack> command = literal(name)
-                .then(argument("name", StringArgumentType.word())
+                // /gmsg toggle [group]
+                .then(literal("toggle")
+                        .then(argument("group", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().toggleGroupChat(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "group")))))
+                        .executes(ctx -> run(ctx.getSource(),
+                                src -> service().toggleGroupChat(player(src).getUUID(), null))))
+                // /gmsg history [count|group] [count]
+                .then(literal("history")
+                        .then(argument("count", IntegerArgumentType.integer(1, 5))
+                                .executes(ctx -> {
+                                    int count = IntegerArgumentType.getInteger(ctx, "count");
+                                    CommandSourceStack source = ctx.getSource();
+                                    for (String line : service().getGroupHistory(player(source).getUUID(), null, count)) {
+                                        source.sendSuccess(() -> Component.literal(line), false);
+                                    }
+                                    return 1;
+                                }))
+                        .then(argument("name", StringArgumentType.word())
+                                .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                                .then(argument("count", IntegerArgumentType.integer(1, 5))
+                                        .executes(ctx -> {
+                                            String grp = StringArgumentType.getString(ctx, "name");
+                                            int count = IntegerArgumentType.getInteger(ctx, "count");
+                                            CommandSourceStack source = ctx.getSource();
+                                            for (String line : service().getGroupHistory(player(source).getUUID(), grp, count)) {
+                                                source.sendSuccess(() -> Component.literal(line), false);
+                                            }
+                                            return 1;
+                                        }))
+                                .executes(ctx -> {
+                                    String grp = StringArgumentType.getString(ctx, "name");
+                                    // numeric group name means it was actually a count - handle via service infer fallback
+                                    try {
+                                        int n = Integer.parseInt(grp);
+                                        if (n >= 1 && n <= 5) {
+                                            CommandSourceStack source = ctx.getSource();
+                                            for (String line : service().getGroupHistory(player(source).getUUID(), null, n)) {
+                                                source.sendSuccess(() -> Component.literal(line), false);
+                                            }
+                                            return 1;
+                                        }
+                                    } catch (NumberFormatException ignore) {}
+                                    CommandSourceStack source = ctx.getSource();
+                                    for (String line : service().getGroupHistory(player(source).getUUID(), grp, 5)) {
+                                        source.sendSuccess(() -> Component.literal(line), false);
+                                    }
+                                    return 1;
+                                }))
+                        .executes(ctx -> {
+                            CommandSourceStack source = ctx.getSource();
+                            for (String line : service().getGroupHistory(player(source).getUUID(), null, 5)) {
+                                source.sendSuccess(() -> Component.literal(line), false);
+                            }
+                            return 1;
+                        }))
+                // /gmsg <group> toggle  /  /gmsg <group> history [count]  /  /gmsg <group> <message>
+                .then(argument("groupName", StringArgumentType.word())
                         .suggests((ctx, builder) -> suggestOwnGroups(ctx, builder))
+                        .then(literal("toggle")
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().toggleGroupChat(player(src).getUUID(),
+                                                StringArgumentType.getString(ctx, "groupName")))))
+                        .then(literal("history")
+                                .then(argument("count", IntegerArgumentType.integer(1, 5))
+                                        .executes(ctx -> {
+                                            String g = StringArgumentType.getString(ctx, "groupName");
+                                            int count = IntegerArgumentType.getInteger(ctx, "count");
+                                            CommandSourceStack source = ctx.getSource();
+                                            for (String line : service().getGroupHistory(player(source).getUUID(), g, count)) {
+                                                source.sendSuccess(() -> Component.literal(line), false);
+                                            }
+                                            return 1;
+                                        }))
+                                .executes(ctx -> {
+                                    String g = StringArgumentType.getString(ctx, "groupName");
+                                    CommandSourceStack source = ctx.getSource();
+                                    for (String line : service().getGroupHistory(player(source).getUUID(), g, 5)) {
+                                        source.sendSuccess(() -> Component.literal(line), false);
+                                    }
+                                    return 1;
+                                }))
                         .then(argument("message", StringArgumentType.greedyString())
                                 .executes(ctx -> {
                                     CommandResult result = persistent
                                             ? service().sendGroupMessagePersistent(player(ctx.getSource()).getUUID(),
-                                                    StringArgumentType.getString(ctx, "name"),
+                                                    StringArgumentType.getString(ctx, "groupName"),
                                                     StringArgumentType.getString(ctx, "message"))
                                             : service().sendGroupMessage(player(ctx.getSource()).getUUID(),
-                                                    StringArgumentType.getString(ctx, "name"),
+                                                    StringArgumentType.getString(ctx, "groupName"),
                                                     StringArgumentType.getString(ctx, "message"));
                                     sendResult(ctx.getSource(), result);
                                     return 1;
-                                })));
+                                })))
+                // shorthand: /gmsg <message> (infer single group) — greedy
+                .then(argument("message", StringArgumentType.greedyString())
+                        .executes(ctx -> {
+                            String msg = StringArgumentType.getString(ctx, "message");
+                            // If message is exactly "toggle" or "history" treat as shortcuts without group? Already handled by literals above,
+                            // but this fallback still covers single-word messages that aren't those literals.
+                            CommandResult result = persistent
+                                    ? service().sendGroupMessagePersistent(player(ctx.getSource()).getUUID(), null, msg)
+                                    : service().sendGroupMessage(player(ctx.getSource()).getUUID(), null, msg);
+                            sendResult(ctx.getSource(), result);
+                            return 1;
+                        }));
         dispatcher.register(command);
     }
 

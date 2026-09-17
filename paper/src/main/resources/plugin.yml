@@ -14,14 +14,14 @@ permissions:
 commands:
   group:
     description: Manage chat groups
-    usage: "/group <create|delete|invite|accept|decline|leave|kick|list|members> [args]"
+    usage: "/group <create|delete|invite|accept|decline|leave|kick|list|members|history|toggle> [args]  OR  /group <group> <history|toggle> [count]"
   gmsg:
-    description: Send a message to a group
-    usage: "/gmsg <group> <message>"
+    description: Send a message to a group (group can be omitted if you have exactly 1 group)
+    usage: "/gmsg [group] <message> | /gmsg toggle [group] | /gmsg history [group] [1-5] | /gmsg <group> <toggle|history> [1-5]"
     aliases: [gm]
   gmoffline:
-    description: Send a group message that's guaranteed to be in everyone's mailbox, online or not
-    usage: "/gmoffline <group> <message>"
+    description: Send a group message that's guaranteed to be in everyone's mailbox, online or not (group can be omitted if you have exactly 1 group)
+    usage: "/gmoffline [group] <message> | /gmoffline toggle [group] | /gmoffline history [group] [1-5] | /gmoffline <group> <toggle|history> [1-5]"
   dm:
     description: Send a private message to a player (queues if they're offline)
     usage: "/dm <player> <message>"

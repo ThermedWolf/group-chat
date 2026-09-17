@@ -19,18 +19,57 @@ public class GroupChatService {
 
     private final GroupManager groupManager;
     private final MessageStore messageStore;
+    private final GroupHistoryStore historyStore;
     private final PlatformBridge bridge;
     private final ComposeSession composeSession = new ComposeSession();
+    private final ToggleSession toggleSession = new ToggleSession();
 
     public GroupChatService(File dataFolder, PlatformBridge bridge) {
         this.groupManager = new GroupManager(dataFolder);
         this.messageStore = new MessageStore(dataFolder);
+        this.historyStore = new GroupHistoryStore(dataFolder);
         this.bridge = bridge;
     }
 
     public void saveAll() {
         groupManager.save();
         messageStore.save();
+        historyStore.save();
+    }
+
+    /** If player has exactly one group, return its name; otherwise empty. */
+    public Optional<String> inferSingleGroup(UUID player) {
+        List<Group> groups = groupManager.getGroupsForPlayer(player);
+        if (groups.size() == 1) {
+            return Optional.of(groups.get(0).getName());
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Resolve a group name, supporting the omitting shorthand: if groupName is null/blank
+     * and the player has exactly one group, infer it. Returns a CommandResult fail message
+     * via Optional if resolution fails, or the resolved name.
+     */
+    public Optional<String> resolveGroupName(UUID player, String groupName) {
+        if (groupName != null && !groupName.isBlank()) {
+            return Optional.of(groupName);
+        }
+        Optional<String> inferred = inferSingleGroup(player);
+        return inferred;
+    }
+
+    public String inferErrorMessage(UUID player) {
+        List<Group> groups = groupManager.getGroupsForPlayer(player);
+        if (groups.isEmpty()) {
+            return "&cYou are not in any groups.";
+        }
+        StringBuilder sb = new StringBuilder("&cPlease specify a group. Your groups: &e");
+        for (int i = 0; i < groups.size(); i++) {
+            sb.append(groups.get(i).getName());
+            if (i < groups.size() - 1) sb.append("&7, &e");
+        }
+        return sb.toString();
     }
 
     public CommandResult createGroup(UUID uuid, String name) {
@@ -47,9 +86,18 @@ public class GroupChatService {
     }
 
     public CommandResult deleteGroup(UUID uuid, String name) {
+        // support inferred group when name is null/blank and player has single group
+        if (name == null || name.isBlank()) {
+            Optional<String> inferred = resolveGroupName(uuid, name);
+            if (inferred.isEmpty()) return CommandResult.fail(inferErrorMessage(uuid));
+            name = inferred.get();
+        }
         boolean deleted = groupManager.deleteGroup(name, uuid);
         if (deleted) {
             LOGGER.log(Level.INFO, "Group ''{0}'' deleted by {1}", new Object[]{name, uuid});
+            // clear toggles for this group for all players
+            String deletedName = name;
+            toggleSession.clearForGroup(deletedName);
         }
         return deleted
                 ? CommandResult.ok("&aGroup '" + name + "' deleted.")
@@ -57,6 +105,11 @@ public class GroupChatService {
     }
 
     public CommandResult invite(UUID uuid, String groupName, String targetName) {
+        if (groupName == null || groupName.isBlank()) {
+            Optional<String> inferred = resolveGroupName(uuid, groupName);
+            if (inferred.isEmpty()) return CommandResult.fail(inferErrorMessage(uuid));
+            groupName = inferred.get();
+        }
         Optional<Group> groupOpt = groupManager.getGroup(groupName);
         if (groupOpt.isEmpty()) {
             return CommandResult.fail("&cGroup not found.");
@@ -91,6 +144,21 @@ public class GroupChatService {
     }
 
     public CommandResult acceptInvite(UUID uuid, String groupName) {
+        if (groupName == null || groupName.isBlank()) {
+            List<String> invited = getInvitedGroupNames(uuid);
+            if (invited.size() == 1) {
+                groupName = invited.get(0);
+            } else if (invited.isEmpty()) {
+                return CommandResult.fail("&cNo pending invites.");
+            } else {
+                StringBuilder sb = new StringBuilder("&cPlease specify a group. Pending invites: &e");
+                for (int i = 0; i < invited.size(); i++) {
+                    sb.append(invited.get(i));
+                    if (i < invited.size() - 1) sb.append("&7, &e");
+                }
+                return CommandResult.fail(sb.toString());
+            }
+        }
         boolean accepted = groupManager.acceptInvite(groupName, uuid);
         if (!accepted) {
             return CommandResult.fail("&cNo pending invite for that group.");
@@ -108,6 +176,21 @@ public class GroupChatService {
     }
 
     public CommandResult declineInvite(UUID uuid, String groupName) {
+        if (groupName == null || groupName.isBlank()) {
+            List<String> invited = getInvitedGroupNames(uuid);
+            if (invited.size() == 1) {
+                groupName = invited.get(0);
+            } else if (invited.isEmpty()) {
+                return CommandResult.fail("&cNo pending invites.");
+            } else {
+                StringBuilder sb = new StringBuilder("&cPlease specify a group. Pending invites: &e");
+                for (int i = 0; i < invited.size(); i++) {
+                    sb.append(invited.get(i));
+                    if (i < invited.size() - 1) sb.append("&7, &e");
+                }
+                return CommandResult.fail(sb.toString());
+            }
+        }
         boolean declined = groupManager.declineInvite(groupName, uuid);
         if (declined) {
             LOGGER.log(Level.INFO, "{0} declined invite to group ''{1}''", new Object[]{uuid, groupName});
@@ -118,12 +201,22 @@ public class GroupChatService {
     }
 
     public CommandResult leaveGroup(UUID uuid, String groupName) {
+        if (groupName == null || groupName.isBlank()) {
+            Optional<String> inferred = resolveGroupName(uuid, groupName);
+            if (inferred.isEmpty()) return CommandResult.fail(inferErrorMessage(uuid));
+            groupName = inferred.get();
+        }
         // Capture owner before leave to detect transfer
         Optional<Group> before = groupManager.getGroup(groupName);
         UUID oldOwner = before.map(Group::getOwner).orElse(null);
+        final String finalGroupName = groupName;
         boolean left = groupManager.leaveGroup(groupName, uuid);
         if (left) {
-            LOGGER.log(Level.INFO, "{0} left group ''{1}''", new Object[]{uuid, groupName});
+            LOGGER.log(Level.INFO, "{0} left group ''{1}''", new Object[]{uuid, finalGroupName});
+            // If leaver had toggle on this group, clear it
+            toggleSession.getGroup(uuid).ifPresent(g -> {
+                if (g.equalsIgnoreCase(finalGroupName)) toggleSession.clear(uuid);
+            });
             // Notify new owner if ownership transferred
             if (oldOwner != null && oldOwner.equals(uuid)) {
                 groupManager.getGroup(groupName).ifPresent(g -> {
@@ -141,6 +234,14 @@ public class GroupChatService {
     }
 
     public CommandResult kickMember(UUID requester, String groupName, String targetName) {
+        // inferred group support when groupName is null/blank
+        if (groupName == null || groupName.isBlank()) {
+            Optional<String> inferred = resolveGroupName(requester, groupName);
+            if (inferred.isEmpty()) return CommandResult.fail(inferErrorMessage(requester));
+            groupName = inferred.get();
+        }
+        // When called via shorthand /group kick <player> (single group), targetName will be in groupName slot.
+        // Paper layer handles ambiguity; this fallback keeps service robust.
         Optional<Group> groupOpt = groupManager.getGroup(groupName);
         if (groupOpt.isEmpty()) {
             return CommandResult.fail("&cGroup not found.");
@@ -167,6 +268,10 @@ public class GroupChatService {
         if (bridge.isOnline(target)) {
             bridge.sendMessage(target, "&cYou were removed from '" + group.getName() + "'.");
         }
+        // clear toggle if kicked player had it enabled for this group
+        toggleSession.getGroup(target).ifPresent(g -> {
+            if (g.equalsIgnoreCase(group.getName())) toggleSession.clear(target);
+        });
         return CommandResult.ok("&aRemoved " + bridge.getName(target) + " from '" + group.getName() + "'.");
     }
 
@@ -186,6 +291,11 @@ public class GroupChatService {
     }
 
     public CommandResult members(UUID requester, String groupName) {
+        if (groupName == null || groupName.isBlank()) {
+            Optional<String> inferred = resolveGroupName(requester, groupName);
+            if (inferred.isEmpty()) return CommandResult.fail(inferErrorMessage(requester));
+            groupName = inferred.get();
+        }
         Optional<Group> groupOpt = groupManager.getGroup(groupName);
         if (groupOpt.isEmpty()) {
             return CommandResult.fail("&cGroup not found.");
@@ -231,6 +341,12 @@ public class GroupChatService {
      * immediately; offline members get it queued in their mailbox.
      */
     public CommandResult sendGroupMessage(UUID sender, String groupName, String message) {
+        // inferred group support for gmsg shorthand etc.
+        if (groupName == null || groupName.isBlank()) {
+            Optional<String> inferred = resolveGroupName(sender, groupName);
+            if (inferred.isEmpty()) return CommandResult.fail(inferErrorMessage(sender));
+            groupName = inferred.get();
+        }
         String sanitized = validateAndSanitizeMessage(message);
         if (sanitized == null) {
             if (message != null && ChatFormat.sanitizeUserText(message).trim().length() > MessageStore.MAX_MESSAGE_LENGTH) {
@@ -251,6 +367,12 @@ public class GroupChatService {
 
         String formatted = "&8[&d" + group.getName() + "&8] &f" + bridge.getName(sender) + "&7: &f" + message;
         long now = System.currentTimeMillis();
+
+        // Persist rolling history for every member (sender + all recipients)
+        GroupHistoryEntry historyEntry = new GroupHistoryEntry(sender, bridge.getName(sender), message, now);
+        for (UUID member : group.getMembers()) {
+            historyStore.addMessage(member, group.getName(), historyEntry);
+        }
 
         for (UUID member : group.getMembers()) {
             if (bridge.isOnline(member)) {
@@ -275,6 +397,11 @@ public class GroupChatService {
      * scrollback (announcements, important group updates, etc).
      */
     public CommandResult sendGroupMessagePersistent(UUID sender, String groupName, String message) {
+        if (groupName == null || groupName.isBlank()) {
+            Optional<String> inferred = resolveGroupName(sender, groupName);
+            if (inferred.isEmpty()) return CommandResult.fail(inferErrorMessage(sender));
+            groupName = inferred.get();
+        }
         String sanitized = validateAndSanitizeMessage(message);
         if (sanitized == null) {
             if (message != null && ChatFormat.sanitizeUserText(message).trim().length() > MessageStore.MAX_MESSAGE_LENGTH) {
@@ -295,6 +422,11 @@ public class GroupChatService {
 
         String formatted = "&8[&d" + group.getName() + "&8] &f" + bridge.getName(sender) + "&7: &f" + message;
         long now = System.currentTimeMillis();
+
+        GroupHistoryEntry historyEntry = new GroupHistoryEntry(sender, bridge.getName(sender), message, now);
+        for (UUID member : group.getMembers()) {
+            historyStore.addMessage(member, group.getName(), historyEntry);
+        }
 
         for (UUID member : group.getMembers()) {
             if (bridge.isOnline(member)) {
@@ -402,6 +534,144 @@ public class GroupChatService {
                     + (page < totalPages ? "next" : "first") + " page, &e/unread clear&7 to clear all."));
         }
         return lines;
+    }
+
+    // ---- History ----
+    public List<String> getGroupHistory(UUID requester, String groupName, int count) {
+        if (groupName == null || groupName.isBlank()) {
+            Optional<String> inferred = resolveGroupName(requester, groupName);
+            if (inferred.isEmpty()) {
+                return List.of(ChatFormat.color(inferErrorMessage(requester)));
+            }
+            groupName = inferred.get();
+        }
+        if (count < 1) count = 1;
+        if (count > GroupHistoryStore.MAX_HISTORY_PER_GROUP) count = GroupHistoryStore.MAX_HISTORY_PER_GROUP;
+
+        Optional<Group> groupOpt = groupManager.getGroup(groupName);
+        if (groupOpt.isEmpty()) {
+            return List.of(ChatFormat.color("&cGroup not found."));
+        }
+        Group group = groupOpt.get();
+        if (!group.isMember(requester)) {
+            return List.of(ChatFormat.color("&cYou are not a member of that group."));
+        }
+
+        List<GroupHistoryEntry> all = historyStore.getHistory(requester, group.getName());
+        if (all.isEmpty()) {
+            return List.of(ChatFormat.color("&7No recent messages in '" + group.getName() + "'."));
+        }
+        // oldest->newest, take last 'count'
+        int from = Math.max(0, all.size() - count);
+        List<GroupHistoryEntry> slice = all.subList(from, all.size());
+
+        List<String> lines = new ArrayList<>();
+        lines.add(ChatFormat.color("&e--- Last " + slice.size() + " messages in '" + group.getName() + "' ---"));
+        java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss");
+        for (GroupHistoryEntry e : slice) {
+            String time = java.time.Instant.ofEpochMilli(e.getTimestamp())
+                    .atZone(java.time.ZoneId.systemDefault())
+                    .format(fmt);
+            String fromName = ChatFormat.sanitizeUserText(e.getFromName());
+            String msg = ChatFormat.sanitizeUserText(e.getMessage());
+            lines.add(ChatFormat.color("&8[" + time + "] &f" + fromName + "&7: &f" + msg));
+        }
+        return lines;
+    }
+
+    // ---- Toggle ----
+    public CommandResult toggleGroupChat(UUID player, String groupName) {
+        if (groupName == null || groupName.isBlank()) {
+            Optional<String> inferred = resolveGroupName(player, groupName);
+            if (inferred.isEmpty()) return CommandResult.fail(inferErrorMessage(player));
+            groupName = inferred.get();
+        }
+        Optional<Group> groupOpt = groupManager.getGroup(groupName);
+        if (groupOpt.isEmpty()) {
+            return CommandResult.fail("&cGroup not found.");
+        }
+        Group group = groupOpt.get();
+        if (!group.isMember(player)) {
+            return CommandResult.fail("&cYou are not a member of that group.");
+        }
+        boolean nowEnabled = toggleSession.toggle(player, group.getName());
+        // If composing was active, cancel it when toggling (user explicitly chose toggle mode)
+        if (nowEnabled) {
+            composeSession.cancel(player);
+            return CommandResult.ok("&aToggled group chat ON for '" + group.getName() + "'. &7All your messages will go there. Type &ecancel&7 or &e/group " + group.getName() + " toggle&7 again to turn off.");
+        } else {
+            return CommandResult.ok("&7Toggled group chat OFF. Your messages will go to public chat again.");
+        }
+    }
+
+    public boolean isToggled(UUID player) {
+        return toggleSession.isToggled(player);
+    }
+
+    public Optional<String> getToggledGroup(UUID player) {
+        return toggleSession.getGroup(player);
+    }
+
+    public void clearToggle(UUID player) {
+        toggleSession.clear(player);
+        composeSession.cancel(player);
+    }
+
+    public void clearToggleOnDisconnect(UUID player) {
+        toggleSession.clear(player);
+        composeSession.cancel(player);
+    }
+
+    /**
+     * Handles a normal chat message when toggle is active. Compose has priority and is handled elsewhere.
+     * Returns non-empty Optional if the message was consumed (channelled to group or cancelled).
+     */
+    public Optional<CommandResult> tryHandleToggledChat(UUID sender, String message) {
+        Optional<String> toggledOpt = toggleSession.getGroup(sender);
+        if (toggledOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        String groupName = toggledOpt.get();
+
+        // 'cancel' anywhere while toggled or composing exits both modes
+        if (message.trim().equalsIgnoreCase("cancel")) {
+            toggleSession.clear(sender);
+            composeSession.cancel(sender);
+            bridge.sendMessage(sender, "&7Toggled chat off. Cancelled.");
+            return Optional.of(CommandResult.ok(null));
+        }
+
+        CommandResult result = sendGroupMessage(sender, groupName, message);
+        if (result.getMessage() != null) {
+            bridge.sendMessage(sender, result.getMessage());
+            // If group not found or not member any more, auto-disable toggle
+            if (!result.isSuccess()) {
+                // keep toggle on failure? No, clear if membership issue
+                if (result.getMessage().contains("not a member") || result.getMessage().contains("Group not found")) {
+                    toggleSession.clear(sender);
+                    bridge.sendMessage(sender, "&7Toggle disabled due to error.");
+                }
+            }
+        }
+        return Optional.of(result);
+    }
+
+    /**
+     * Unified entry for platforms: checks compose first, then toggle. Returns true if consumed.
+     */
+    public boolean handleChatIntercept(UUID sender, String plainMessage) {
+        // Compose has absolute priority (GUI flow)
+        Optional<CommandResult> compose = tryHandleChatAsCompose(sender, plainMessage);
+        if (compose.isPresent()) {
+            // If message was "cancel" while composing, that already cleared compose. But if user was also toggled, cancel should clear toggle too (handled in compose path separately?).
+            if (plainMessage.trim().equalsIgnoreCase("cancel")) {
+                toggleSession.clear(sender);
+            }
+            return true;
+        }
+        // Check toggle
+        Optional<CommandResult> toggled = tryHandleToggledChat(sender, plainMessage);
+        return toggled.isPresent();
     }
 
     // ---- GUI support ----
