@@ -21,7 +21,7 @@ public class ChatComposeListener implements Listener {
     @EventHandler(ignoreCancelled = true)
     public void onChat(AsyncChatEvent event) {
         java.util.UUID uuid = event.getPlayer().getUniqueId();
-        if (!service.isComposing(uuid) && !service.isToggled(uuid)) {
+        if (!service.isComposing(uuid) && !service.isToggled(uuid) && !service.isPendingToggleSelection(uuid)) {
             return;
         }
         // We're taking over this message - stop it from posting publicly.

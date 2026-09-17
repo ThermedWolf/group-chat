@@ -583,8 +583,26 @@ public class GroupChatService {
     public CommandResult toggleGroupChat(UUID player, String groupName) {
         if (groupName == null || groupName.isBlank()) {
             Optional<String> inferred = resolveGroupName(player, groupName);
-            if (inferred.isEmpty()) return CommandResult.fail(inferErrorMessage(player));
-            groupName = inferred.get();
+            if (inferred.isPresent()) {
+                groupName = inferred.get();
+            } else {
+                List<Group> groups = groupManager.getGroupsForPlayer(player);
+                if (groups.isEmpty()) {
+                    return CommandResult.fail("&cYou are not in any groups.");
+                }
+                // Multiple groups - enter chat selection mode
+                toggleSession.beginPending(player);
+                StringBuilder sb = new StringBuilder("&eYou are part of multiple groups, type the name of one of the groups in chat to select it: &a");
+                for (int i = 0; i < groups.size(); i++) {
+                    sb.append(groups.get(i).getName());
+                    if (i < groups.size() - 1) sb.append("&7, &a");
+                }
+                sb.append("&e. &7You can also re-run &e/group toggle <group> &7or &e/gmsg toggle <group>&7. Type &ccancel &7to exit.");
+                return CommandResult.ok(sb.toString());
+            }
+        } else {
+            // Explicit group provided while pending - clear pending first and proceed to toggle
+            toggleSession.clearPending(player);
         }
         Optional<Group> groupOpt = groupManager.getGroup(groupName);
         if (groupOpt.isEmpty()) {
@@ -596,12 +614,58 @@ public class GroupChatService {
         }
         boolean nowEnabled = toggleSession.toggle(player, group.getName());
         // If composing was active, cancel it when toggling (user explicitly chose toggle mode)
+        // Also clear pending selection if any
+        toggleSession.clearPending(player);
         if (nowEnabled) {
             composeSession.cancel(player);
             return CommandResult.ok("&aToggled group chat ON for '" + group.getName() + "'. &7All your messages will go there. Type &ecancel&7 or &e/group " + group.getName() + " toggle&7 again to turn off.");
         } else {
             return CommandResult.ok("&7Toggled group chat OFF. Your messages will go to public chat again.");
         }
+    }
+
+    public boolean isPendingToggleSelection(UUID player) {
+        return toggleSession.isPendingSelection(player);
+    }
+
+    public Optional<CommandResult> tryHandlePendingToggleSelection(UUID player, String message) {
+        if (!toggleSession.isPendingSelection(player)) {
+            return Optional.empty();
+        }
+        String trimmed = message.trim();
+        if (trimmed.equalsIgnoreCase("cancel")) {
+            toggleSession.clearPending(player);
+            bridge.sendMessage(player, "&7Cancelled toggle selection.");
+            return Optional.of(CommandResult.ok(null));
+        }
+        // Allow only single-word group names; if they typed with spaces, take first token as attempt but also give error
+        String candidate = trimmed;
+        // Extract first word if contains spaces (common mistake: typing message instead of group name)
+        if (candidate.contains(" ")) {
+            candidate = candidate.split("\\s+")[0];
+            // But we still want to hint they typed extra text
+        }
+        Optional<Group> groupOpt = groupManager.getGroup(candidate);
+        if (groupOpt.isEmpty()) {
+            bridge.sendMessage(player, ChatFormat.color("&cGroup '" + ChatFormat.sanitizeUserText(candidate) + "' not found. &7Try again or type &ccancel &7to exit. Your groups: &a"
+                    + String.join("&7, &a", getGroupNamesForPlayer(player))));
+            return Optional.of(CommandResult.ok(null));
+        }
+        Group group = groupOpt.get();
+        if (!group.isMember(player)) {
+            bridge.sendMessage(player, ChatFormat.color("&cYou are not a member of '" + group.getName() + "'. &7Try again or type &ccancel &7to exit."));
+            return Optional.of(CommandResult.ok(null));
+        }
+        // Valid selection - toggle on
+        toggleSession.clearPending(player);
+        boolean nowEnabled = toggleSession.toggle(player, group.getName());
+        composeSession.cancel(player);
+        if (nowEnabled) {
+            bridge.sendMessage(player, ChatFormat.color("&aToggled group chat ON for '" + group.getName() + "'. &7All your messages will go there. Type &ecancel&7 or &e/group " + group.getName() + " toggle&7 again to turn off."));
+        } else {
+            bridge.sendMessage(player, ChatFormat.color("&7Toggled group chat OFF. Your messages will go to public chat again."));
+        }
+        return Optional.of(CommandResult.ok(null));
     }
 
     public boolean isToggled(UUID player) {
@@ -614,11 +678,13 @@ public class GroupChatService {
 
     public void clearToggle(UUID player) {
         toggleSession.clear(player);
+        toggleSession.clearPending(player);
         composeSession.cancel(player);
     }
 
     public void clearToggleOnDisconnect(UUID player) {
         toggleSession.clear(player);
+        toggleSession.clearPending(player);
         composeSession.cancel(player);
     }
 
@@ -657,15 +723,21 @@ public class GroupChatService {
     }
 
     /**
-     * Unified entry for platforms: checks compose first, then toggle. Returns true if consumed.
+     * Unified entry for platforms: checks pending toggle selection, then compose, then toggle. Returns true if consumed.
      */
     public boolean handleChatIntercept(UUID sender, String plainMessage) {
-        // Compose has absolute priority (GUI flow)
+        // Pending toggle selection has highest priority - waiting for group name via chat
+        Optional<CommandResult> pending = tryHandlePendingToggleSelection(sender, plainMessage);
+        if (pending.isPresent()) {
+            return true;
+        }
+        // Compose has priority (GUI flow)
         Optional<CommandResult> compose = tryHandleChatAsCompose(sender, plainMessage);
         if (compose.isPresent()) {
-            // If message was "cancel" while composing, that already cleared compose. But if user was also toggled, cancel should clear toggle too (handled in compose path separately?).
+            // If message was "cancel" while composing, that already cleared compose. But if user was also pending or toggled, clear those too
             if (plainMessage.trim().equalsIgnoreCase("cancel")) {
                 toggleSession.clear(sender);
+                toggleSession.clearPending(sender);
             }
             return true;
         }

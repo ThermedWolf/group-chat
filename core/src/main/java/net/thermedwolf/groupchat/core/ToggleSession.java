@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ToggleSession {
 
     private final Map<UUID, String> toggled = new ConcurrentHashMap<>();
+    private final java.util.Set<UUID> pendingSelection = ConcurrentHashMap.newKeySet();
 
     /**
      * Toggle group chat for a player. If they were already toggled to the same group, disable.
@@ -41,10 +42,24 @@ public class ToggleSession {
 
     public void clear(UUID player) {
         toggled.remove(player);
+        pendingSelection.remove(player);
     }
 
     public void clearForGroup(String groupName) {
         String lower = groupName.toLowerCase(Locale.ROOT);
         toggled.entrySet().removeIf(e -> e.getValue().toLowerCase(Locale.ROOT).equals(lower));
+    }
+
+    // --- pending selection when /group toggle with multiple groups ---
+    public void beginPending(UUID player) {
+        pendingSelection.add(player);
+    }
+
+    public boolean isPendingSelection(UUID player) {
+        return pendingSelection.contains(player);
+    }
+
+    public void clearPending(UUID player) {
+        pendingSelection.remove(player);
     }
 }
