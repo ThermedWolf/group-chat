@@ -862,6 +862,14 @@ public class GroupChatService {
         return false;
     }
 
+    public int getTotalGroupCount() {
+        return groupManager.getAllGroups().size();
+    }
+
+    public java.io.File getGroupsFile() {
+        return groupManager.getGroupsFile();
+    }
+
     // ---- GUI support ----
     // The GUI needs raw Group objects to build its menus (names, member
     // counts, etc). These are read-only views; all mutation still goes

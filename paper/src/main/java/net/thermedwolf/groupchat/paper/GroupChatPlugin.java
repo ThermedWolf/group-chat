@@ -15,6 +15,9 @@ public class GroupChatPlugin extends JavaPlugin {
             getDataFolder().mkdirs();
         }
         this.service = new GroupChatService(getDataFolder(), new PaperPlatformBridge());
+        // Mirror Fabric's logging: show where data lives and how many groups were loaded (core's GroupManager already logs via JUL at FINE/INFO)
+        getLogger().info("GroupChat data folder: " + getDataFolder().getAbsolutePath());
+        getLogger().info("Loaded " + service.getTotalGroupCount() + " groups from " + new java.io.File(getDataFolder(), "groups.json").getAbsolutePath());
         GuiManager gui = new GuiManager(service);
 
         GroupCommand groupCommand = new GroupCommand(service);

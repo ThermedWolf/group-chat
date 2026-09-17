@@ -161,6 +161,10 @@ public class GroupManager {
         return Collections.unmodifiableCollection(groups.values());
     }
 
+    public File getGroupsFile() {
+        return file;
+    }
+
     private synchronized void load() {
         if (!file.exists()) {
             LOGGER.log(Level.INFO, "No groups.json at {0} - starting empty", file.getAbsolutePath());
