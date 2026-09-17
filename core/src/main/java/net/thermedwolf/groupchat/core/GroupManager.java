@@ -163,8 +163,10 @@ public class GroupManager {
 
     private synchronized void load() {
         if (!file.exists()) {
+            LOGGER.log(Level.INFO, "No groups.json at {0} - starting empty", file.getAbsolutePath());
             return;
         }
+        LOGGER.log(Level.INFO, "Loading groups.json from {0}", file.getAbsolutePath());
         try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
             Type type = new TypeToken<Map<String, Group>>() {
             }.getType();
@@ -182,9 +184,10 @@ public class GroupManager {
                 }
                 groups.clear();
                 groups.putAll(validated);
+                LOGGER.log(Level.INFO, "Loaded {0} groups from {1}", new Object[]{groups.size(), file.getAbsolutePath()});
             }
         } catch (IOException | JsonSyntaxException e) {
-            LOGGER.log(Level.WARNING, "Failed to load groups.json (corrupt or unreadable). Backing up and starting empty.", e);
+            LOGGER.log(Level.WARNING, "Failed to load groups.json at " + file.getAbsolutePath() + " (corrupt or unreadable). Backing up and starting empty.", e);
             backupCorruptFile();
         }
     }
@@ -205,8 +208,9 @@ public class GroupManager {
                 // Fallback when ATOMIC_MOVE not supported (FAT32, network mounts)
                 Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
+            LOGGER.log(Level.FINE, "Saved {0} groups to {1}", new Object[]{groups.size(), file.getAbsolutePath()});
         } catch (IOException e) {
-            LOGGER.log(Level.WARNING, "Failed to save groups.json", e);
+            LOGGER.log(Level.WARNING, "Failed to save groups.json to " + file.getAbsolutePath(), e);
         }
     }
 

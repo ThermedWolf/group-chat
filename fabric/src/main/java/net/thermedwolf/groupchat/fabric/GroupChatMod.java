@@ -75,14 +75,61 @@ public class GroupChatMod implements DedicatedServerModInitializer {
     }
 
     private void onServerStarted(MinecraftServer server) {
-        // getServerDirectory() returns a Path in 26.1.2 (confirmed by the compiler,
-        // not a guess) - .toFile() bridges it to the java.io.File the rest of the
-        // core module expects.
-        File dataFolder = new File(server.getServerDirectory().toFile(), "groupchat");
+        // Fabric's most reliable persistent location is the game dir (server root).
+        // Earlier versions used server.getServerDirectory() which on some launchers
+        // resolves to an empty/relative path (e.g. ""), causing data to be written
+        // to an ephemeral CWD and appear to vanish after a restart (Paper uses
+        // plugins/GroupChat correctly, so it worked). Now we resolve via FabricLoader
+        // and migrate any legacy data.
+        File dataFolder = resolveDataFolder(server);
         if (!dataFolder.exists()) {
             dataFolder.mkdirs();
         }
+        server.sendSystemMessage(Component.literal("[GroupChat] data folder: " + dataFolder.getAbsolutePath()));
         service = new GroupChatService(dataFolder, new FabricPlatformBridge(server));
         gui = new FabricGuiManager(service);
+    }
+
+    private static File resolveDataFolder(MinecraftServer server) {
+        java.nio.file.Path gameDir = net.fabricmc.loader.api.FabricLoader.getInstance().getGameDir();
+        File preferred = gameDir.resolve("groupchat").toFile();
+        // Legacy path: server.getServerDirectory()/groupchat (may be relative/empty on some setups)
+        File legacy = new File(server.getServerDirectory().toFile(), "groupchat");
+        // Also check world/groupchat (in case data was written per-world) and config/groupchat
+        File configDir = net.fabricmc.loader.api.FabricLoader.getInstance().getConfigDir().resolve("groupchat").toFile();
+        java.nio.file.Path worldPath = null;
+        try {
+            worldPath = server.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT);
+        } catch (Exception ignored) {}
+        File worldGroupchat = worldPath != null ? worldPath.resolve("groupchat").toFile() : null;
+
+        // Pick first existing folder that actually contains data, otherwise preferred
+        File[] candidates = new File[]{preferred, legacy, configDir, worldGroupchat};
+        File existingWithData = null;
+        for (File c : candidates) {
+            if (c != null && c.isDirectory()) {
+                File groups = new File(c, "groups.json");
+                if (groups.exists() && groups.length() > 2) {
+                    existingWithData = c;
+                    break;
+                }
+            }
+        }
+        File chosen = existingWithData != null ? existingWithData : preferred;
+        // Migrate legacy -> preferred if preferred empty but legacy has data and they're different paths
+        if (existingWithData != null && !chosen.equals(preferred) && existingWithData != preferred) {
+            try {
+                if (!preferred.exists()) preferred.mkdirs();
+                for (File src : new File[]{new File(existingWithData, "groups.json"), new File(existingWithData, "messages.json"), new File(existingWithData, "history.json")}) {
+                    File dst = new File(preferred, src.getName());
+                    if (src.exists() && !dst.exists()) {
+                        java.nio.file.Files.copy(src.toPath(), dst.toPath());
+                    }
+                }
+                // After migration, keep using preferred so future saves are stable
+                chosen = preferred;
+            } catch (Exception ignored) {}
+        }
+        return chosen;
     }
 }
