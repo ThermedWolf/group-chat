@@ -127,10 +127,10 @@ You'll need **JDK 26** and Gradle installed (or use the included `gradlew`/`grad
 gradle build
 
 # Paper plugin jar:
-paper/build/libs/groupchat-paper-1.0.0.jar
+paper/build/libs/groupchat-paper-2.0.0.jar
 
 # Fabric mod jar:
-fabric/build/libs/groupchat-fabric-1.0.0.jar
+fabric/build/libs/groupchat-fabric-2.0.0.jar
 ```
 
 If something in `fabric/` doesn't compile, it's almost always either a
