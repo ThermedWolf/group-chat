@@ -63,9 +63,9 @@ public class GroupChatMod implements DedicatedServerModInitializer {
             if (service == null) {
                 return true;
             }
-            // unified intercept: pending toggle selection, then compose, then toggle
+            // unified intercept: pending history/toggle selection, then compose, then toggle
             java.util.UUID uuid = senderPlayer.getUUID();
-            if (!service.isComposing(uuid) && !service.isToggled(uuid) && !service.isPendingToggleSelection(uuid)) {
+            if (!service.isComposing(uuid) && !service.isToggled(uuid) && !service.isPendingToggleSelection(uuid) && !service.isPendingHistorySelection(uuid)) {
                 return true;
             }
             String plain = message.signedContent();

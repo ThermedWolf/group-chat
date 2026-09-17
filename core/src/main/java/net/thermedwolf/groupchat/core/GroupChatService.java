@@ -23,6 +23,7 @@ public class GroupChatService {
     private final PlatformBridge bridge;
     private final ComposeSession composeSession = new ComposeSession();
     private final ToggleSession toggleSession = new ToggleSession();
+    private final java.util.Map<UUID, Integer> pendingHistorySelection = new java.util.concurrent.ConcurrentHashMap<>();
 
     public GroupChatService(File dataFolder, PlatformBridge bridge) {
         this.groupManager = new GroupManager(dataFolder);
@@ -538,15 +539,31 @@ public class GroupChatService {
 
     // ---- History ----
     public List<String> getGroupHistory(UUID requester, String groupName, int count) {
-        if (groupName == null || groupName.isBlank()) {
-            Optional<String> inferred = resolveGroupName(requester, groupName);
-            if (inferred.isEmpty()) {
-                return List.of(ChatFormat.color(inferErrorMessage(requester)));
-            }
-            groupName = inferred.get();
-        }
         if (count < 1) count = 1;
         if (count > GroupHistoryStore.MAX_HISTORY_PER_GROUP) count = GroupHistoryStore.MAX_HISTORY_PER_GROUP;
+        if (groupName == null || groupName.isBlank()) {
+            Optional<String> inferred = resolveGroupName(requester, groupName);
+            if (inferred.isPresent()) {
+                groupName = inferred.get();
+            } else {
+                List<Group> groups = groupManager.getGroupsForPlayer(requester);
+                if (groups.isEmpty()) {
+                    return List.of(ChatFormat.color("&cYou are not in any groups."));
+                }
+                // Multiple groups - enter chat selection mode (like /group toggle)
+                pendingHistorySelection.put(requester, count);
+                StringBuilder sb = new StringBuilder("&eYou are part of multiple groups, type the name of one of the groups in chat to select it: &a");
+                for (int i = 0; i < groups.size(); i++) {
+                    sb.append(groups.get(i).getName());
+                    if (i < groups.size() - 1) sb.append("&7, &a");
+                }
+                sb.append("&e. &7You can also re-run &e/group history <group> [1-5] &7or &e/gmsg history <group> [1-5]&7. Type &ccancel &7to exit.");
+                return List.of(ChatFormat.color(sb.toString()));
+            }
+        } else {
+            // Explicit group provided while pending - clear pending and proceed
+            pendingHistorySelection.remove(requester);
+        }
 
         Optional<Group> groupOpt = groupManager.getGroup(groupName);
         if (groupOpt.isEmpty()) {
@@ -624,6 +641,78 @@ public class GroupChatService {
         }
     }
 
+    public boolean isPendingHistorySelection(UUID player) {
+        return pendingHistorySelection.containsKey(player);
+    }
+
+    public Optional<CommandResult> tryHandlePendingHistorySelection(UUID player, String message) {
+        Integer pendingCount = pendingHistorySelection.get(player);
+        if (pendingCount == null) {
+            return Optional.empty();
+        }
+        String trimmed = message.trim();
+        if (trimmed.equalsIgnoreCase("cancel")) {
+            pendingHistorySelection.remove(player);
+            bridge.sendMessage(player, "&7Cancelled history selection.");
+            return Optional.of(CommandResult.ok(null));
+        }
+        String candidate = trimmed;
+        if (candidate.contains(" ")) {
+            candidate = candidate.split("\\s+")[0];
+        }
+        Optional<Group> groupOpt = groupManager.getGroup(candidate);
+        if (groupOpt.isEmpty()) {
+            bridge.sendMessage(player, ChatFormat.color("&cGroup '" + ChatFormat.sanitizeUserText(candidate) + "' not found. &7Try again or type &ccancel &7to exit. Your groups: &a"
+                    + String.join("&7, &a", getGroupNamesForPlayer(player))));
+            return Optional.of(CommandResult.ok(null));
+        }
+        Group group = groupOpt.get();
+        if (!group.isMember(player)) {
+            bridge.sendMessage(player, ChatFormat.color("&cYou are not a member of '" + group.getName() + "'. &7Try again or type &ccancel &7to exit."));
+            return Optional.of(CommandResult.ok(null));
+        }
+        // Valid selection - show history with remembered count
+        int count = pendingCount;
+        pendingHistorySelection.remove(player);
+        List<String> lines = getGroupHistoryInternal(player, group.getName(), count);
+        for (String line : lines) {
+            bridge.sendMessage(player, line);
+        }
+        return Optional.of(CommandResult.ok(null));
+    }
+
+    // Internal helper that assumes groupName is already resolved (no pending logic)
+    private List<String> getGroupHistoryInternal(UUID requester, String groupName, int count) {
+        if (count < 1) count = 1;
+        if (count > GroupHistoryStore.MAX_HISTORY_PER_GROUP) count = GroupHistoryStore.MAX_HISTORY_PER_GROUP;
+        Optional<Group> groupOpt = groupManager.getGroup(groupName);
+        if (groupOpt.isEmpty()) {
+            return List.of(ChatFormat.color("&cGroup not found."));
+        }
+        Group group = groupOpt.get();
+        if (!group.isMember(requester)) {
+            return List.of(ChatFormat.color("&cYou are not a member of that group."));
+        }
+        List<GroupHistoryEntry> all = historyStore.getHistory(requester, group.getName());
+        if (all.isEmpty()) {
+            return List.of(ChatFormat.color("&7No recent messages in '" + group.getName() + "'."));
+        }
+        int from = Math.max(0, all.size() - count);
+        List<GroupHistoryEntry> slice = all.subList(from, all.size());
+        List<String> lines = new ArrayList<>();
+        lines.add(ChatFormat.color("&e--- Last " + slice.size() + " messages in '" + group.getName() + "' ---"));
+        java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss");
+        for (GroupHistoryEntry e : slice) {
+            String time = java.time.Instant.ofEpochMilli(e.getTimestamp())
+                    .atZone(java.time.ZoneId.systemDefault())
+                    .format(fmt);
+            String fromName = ChatFormat.sanitizeUserText(e.getFromName());
+            String msg = ChatFormat.sanitizeUserText(e.getMessage());
+            lines.add(ChatFormat.color("&8[" + time + "] &f" + fromName + "&7: &f" + msg));
+        }
+        return lines;
+    }
+
     public boolean isPendingToggleSelection(UUID player) {
         return toggleSession.isPendingSelection(player);
     }
@@ -679,13 +768,19 @@ public class GroupChatService {
     public void clearToggle(UUID player) {
         toggleSession.clear(player);
         toggleSession.clearPending(player);
+        pendingHistorySelection.remove(player);
         composeSession.cancel(player);
     }
 
     public void clearToggleOnDisconnect(UUID player) {
         toggleSession.clear(player);
         toggleSession.clearPending(player);
+        pendingHistorySelection.remove(player);
         composeSession.cancel(player);
+    }
+
+    public void clearPendingHistory(UUID player) {
+        pendingHistorySelection.remove(player);
     }
 
     /**
@@ -723,10 +818,15 @@ public class GroupChatService {
     }
 
     /**
-     * Unified entry for platforms: checks pending toggle selection, then compose, then toggle. Returns true if consumed.
+     * Unified entry for platforms: checks pending history/toggle selection, then compose, then toggle. Returns true if consumed.
      */
     public boolean handleChatIntercept(UUID sender, String plainMessage) {
-        // Pending toggle selection has highest priority - waiting for group name via chat
+        // Pending history selection (from /group history without group) - highest priority
+        Optional<CommandResult> pendingHistory = tryHandlePendingHistorySelection(sender, plainMessage);
+        if (pendingHistory.isPresent()) {
+            return true;
+        }
+        // Pending toggle selection has next priority - waiting for group name via chat
         Optional<CommandResult> pending = tryHandlePendingToggleSelection(sender, plainMessage);
         if (pending.isPresent()) {
             return true;
@@ -738,12 +838,28 @@ public class GroupChatService {
             if (plainMessage.trim().equalsIgnoreCase("cancel")) {
                 toggleSession.clear(sender);
                 toggleSession.clearPending(sender);
+                pendingHistorySelection.remove(sender);
             }
             return true;
         }
         // Check toggle
         Optional<CommandResult> toggled = tryHandleToggledChat(sender, plainMessage);
-        return toggled.isPresent();
+        if (toggled.isPresent()) {
+            return true;
+        }
+        // If user typed cancel while pending history/toggle but not yet consumed (e.g. no pending flag set but typed cancel anyway), ensure cleanup
+        if (plainMessage.trim().equalsIgnoreCase("cancel")) {
+            boolean hadPending = pendingHistorySelection.remove(sender) != null;
+            if (toggleSession.isPendingSelection(sender)) {
+                toggleSession.clearPending(sender);
+                hadPending = true;
+            }
+            if (hadPending) {
+                bridge.sendMessage(sender, "&7Cancelled.");
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---- GUI support ----
