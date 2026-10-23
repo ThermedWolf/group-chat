@@ -6,7 +6,7 @@ This project follows [Semantic Versioning](https://semver.org/). The initial pub
 
 ---
 
-## [Unreleased] - 2.1.0
+## [2.1.0] - 2026-10-23
 
 ### Added
 
