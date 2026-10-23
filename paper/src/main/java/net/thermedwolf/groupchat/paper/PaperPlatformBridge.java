@@ -49,7 +49,9 @@ public class PaperPlatformBridge implements PlatformBridge {
                 Component.empty(),
                 LegacyComponentSerializer.legacySection().deserialize(message),
                 Title.Times.times(Duration.ofMillis(500), Duration.ofMillis(3500), Duration.ofMillis(1000))));
-        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
+        // Entity-targeted overload: only this player hears the sound (the
+        // location overload would let anyone nearby hear it too).
+        player.playSound(player, Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
     }
 
     @Override

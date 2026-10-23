@@ -9,7 +9,7 @@ permissions:
     description: Use all GroupChat commands
     default: true
   groupchat.admin:
-    description: Admin bypass (reserved for future use)
+    description: Admin commands - /announce and /joinmsg
     default: op
 commands:
   group:

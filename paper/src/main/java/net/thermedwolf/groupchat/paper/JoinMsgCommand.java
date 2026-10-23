@@ -7,7 +7,6 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
-import org.bukkit.entity.Player;
 import org.bukkit.util.StringUtil;
 
 import java.util.ArrayList;
@@ -67,12 +66,8 @@ public class JoinMsgCommand implements CommandExecutor, TabCompleter {
                 }
             }
             case "preview" -> {
-                if (!(sender instanceof Player player)) {
-                    sender.sendMessage("Only players can preview join messages.");
-                    return true;
-                }
                 for (String line : service.previewJoinMessages()) {
-                    player.sendMessage(line);
+                    sender.sendMessage(line);
                 }
             }
             default -> sendUsage(sender, label);

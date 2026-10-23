@@ -69,6 +69,12 @@ public final class MarkdownFormat {
             Map.entry("reset", "r"));
 
     /** Inline marker -> legacy code string. Longest markers must be tried first. */
+    // Note: some markers and tags share a legacy code (`code`/`<code>` and
+    // <gray> all emit 7; *italic* and <italic> both emit o), so their open
+    // states are indistinguishable and can cross-close each other
+    // (e.g. <gray>a `b</gray>` closes the gray early). Impact is limited to
+    // admin-authored one-line texts; if that ever matters, give markers
+    // distinct sentinel codes resolved to real codes at emit time.
     private static final Map<String, String> MARKERS = Map.of(
             "**", "l",
             "__", "n",

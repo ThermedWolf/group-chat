@@ -108,11 +108,14 @@ public class JoinMessageStore {
      * still inside the cooldown window.
      */
     public synchronized boolean tryMarkShown(UUID player, long now) {
-        if (cooldownMinutes > 0) {
-            Long last = lastShown.get(player.toString());
-            if (last != null && now - last < cooldownMinutes * 60_000L) {
-                return false;
-            }
+        if (cooldownMinutes <= 0) {
+            // No cooldown configured - don't track "last shown", so enabling
+            // a cooldown later starts everyone fresh (as documented).
+            return true;
+        }
+        Long last = lastShown.get(player.toString());
+        if (last != null && now - last < cooldownMinutes * 60_000L) {
+            return false;
         }
         lastShown.put(player.toString(), now);
         save();
