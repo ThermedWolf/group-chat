@@ -17,25 +17,24 @@ This project follows [Semantic Versioning](https://semver.org/). The initial pub
   - Recipient set: every player who has joined since install, tracked in new `known-players.json` (`KnownPlayerStore`). Chosen over per-platform offline-player enumeration (Paper's `getOfflinePlayers()` has no Fabric equivalent) so behaviour is identical on both platforms.
 - **Automatic join messages** (`/joinmsg add|list|remove|clear|cooldown|preview`):
   - Admin-configured messages shown to each player on join (max 10 × 300 chars), stored in `joinmessages.json` (`JoinMessageStore`).
-  - Per-player cooldown in minutes counts from the last actual show: `cooldown 30` → "joins 3× within 30 minutes, sees the message once". `0` = every join. "Last shown" state persisted (30-day retention).
+  - Per-player cooldown in minutes counts from the last actual show: `cooldown 30` → "joins 3× within 30 minutes, sees the message once". `0` = every join. "Last shown" state persisted (30-day retention); while no cooldown is set nothing is tracked, so enabling one later starts everyone fresh.
   - `preview` renders them as a joining player would see them, ignoring the cooldown.
-  - Same permission model as `/announce`; console can manage everything except preview.
+  - Same permission model as `/announce`; every subcommand works from console.
 - **Message styling** (`MarkdownFormat`, core): Markdown/MiniMessage-style subset → legacy `§` codes, identical on both platforms. `**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `||spoiler||`, `` `code` ``, all 16 colour tags (`<red>…</red>`, …), style tags (`<bold>`, `<italic>`, `<underlined>`, `<strikethrough>`, `<obfuscated>`, `<reset>` + short forms) with proper nesting (close re-applies still-open codes). Raw `§` in input stripped first; legacy `&`-codes keep working. Applies to announcements + join messages.
 - **Platform bridge additions** (`PlatformBridge`): `getOnlinePlayerUuids()` and `sendHighlight(UUID, String)` (Paper: Adventure `Title` + `Sound.ENTITY_PLAYER_LEVELUP`; Fabric: `sendOverlayMessage`).
 - **Mailbox message types** (`PendingMessage`): new `type` field (`group`/`dm`/`announcement`) with legacy-JSON fallback based on `context`; `/unread` renders announcement entries with the `[Announce]` tag.
 
 ### Fixed
 
-- 26.3 API compatibility caught by compiling against the real jars:
-  - Fabric: `CommandSourceStack.hasPermission(int)` no longer exists → level-based `permissions().hasPermission(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))` (equal to old level 2).
-  - Fabric: `Player.displayClientMessage(Component, boolean)` was renamed → `sendOverlayMessage(Component)`.
-  - Paper: switched deprecated `Player#sendTitle(String,String,int,int,int)` to Adventure `Title.title(...)` with `LegacyComponentSerializer` so `§` styling renders in titles.
+- Highlight sound on Paper now plays only for the receiving player (entity-targeted `playSound`) instead of everyone within earshot.
 - DRY: duplicated mailbox-line rendering in `viewAndClearUnread`/`viewUnreadPage` extracted to `formatMailboxLine`.
+- Join message "last shown" state is no longer recorded while no cooldown is configured, so enabling a cooldown later starts everyone fresh.
 
 ### Technical notes
 
 - New core files: `MarkdownFormat`, `KnownPlayerStore` (`known-players.json`), `JoinMessageStore` (`joinmessages.json`). New Paper files: `AnnounceCommand`, `JoinMsgCommand`. `saveAll()` includes the two new stores; both platforms deliver join messages via their existing join hooks (`JoinListener` / `ServerPlayConnectionEvents.JOIN`).
-- Verified: `:core:compileJava` (Gradle, JDK 27), full `fabric` + `paper` sources compiled with `javac` against the cached `minecraft-merged-26.3` jar + fabric-api 0.163.0 and against `paper-api 26.3.build.8-alpha` respectively; 15-case `MarkdownFormat` parser test suite passes.
+- 26.3 API notes for the new code: `CommandSourceStack.hasPermission(int)` was replaced by level-based permission sets (admin gate: `permissions().hasPermission(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))`, equal to the old level 2); the pre-26.3 `Player.displayClientMessage(Component, boolean)` is now `sendOverlayMessage(Component)`; Paper titles use Adventure `Title` (with `LegacyComponentSerializer` for `§` styling) rather than the deprecated `sendTitle`.
+- Verified: full `./gradlew build` on JDK 26 (daemon pinned via `gradle/gradle-daemon-jvm.properties`, JDK provisioned via mise); `MarkdownFormat` parser test suite committed under `core/src/test` and green.
 
 ---
 

@@ -56,8 +56,10 @@ stored in their mailbox. On join, they see:
 [GroupChat] You have 3 unread messages. Type /unread to view them.
 ```
 
-Data is stored as `groups.json` and `messages.json` in the plugin/mod's
-data folder (`plugins/GroupChat/` on Paper, `<world>/groupchat/` on Fabric).
+Data is stored as plain JSON files in the plugin/mod's data folder
+(`plugins/GroupChat/` on Paper, `<gameDir>/groupchat/` on Fabric):
+`groups.json`, `messages.json` (mailbox), `history.json`, and since 2.1.0
+`known-players.json` (announcement recipients) and `joinmessages.json`.
 
 ## Server-wide announcements (`/announce`, admins only)
 

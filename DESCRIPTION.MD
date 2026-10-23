@@ -13,6 +13,9 @@ Available for **both Paper and Fabric** — same features, same commands, same d
 - **Group chat** — message every member of a group at once with `/gmsg` (or the shorter `/gm`)
 - **Offline mailbox** — messages to offline players or offline group members are held and delivered on next join, with an unread count so nothing gets missed
 - **Guaranteed delivery option** — `/gmoffline` drops a copy into _every_ member's mailbox, online or not, for anything you want to be sure isn't lost in chat scrollback
+- **Server-wide announcements** — `/announce` reaches every player: online ones instantly, offline ones via their mailbox. Add `highlight` to pop it on screen with a sound
+- **Automatic join messages** — `/joinmsg` sets messages shown to players when they join, with an optional cooldown so returning players aren't spammed
+- **Message styling** — announcements and join messages support Markdown-style formatting (`**bold**`, `*italic*`, `~~strike~~`, `||spoiler||`) and colour tags (`<red>`, `<gold>`, …)
 - **Direct messages** — `/dm` for one-on-one, queued automatically if the recipient's offline
 - **Full group management** — create, invite, accept/decline, leave, and owner-only kick
 - **Message history** — last 5 messages per group, per player (`/group history`, `/gmsg history`) — so you can catch up after being AFK
@@ -44,6 +47,8 @@ Available for **both Paper and Fabric** — same features, same commands, same d
 | `/dm <player> <message>`                           | Private message; queued if they're offline                                            |
 | `/unread [page\|clear]`                            | Read and clear your queued messages (paginated)                                       |
 | `/groupgui`                                        | Open the graphical menu                                                               |
+| `/announce [highlight] <message>` *(admin)*        | Server-wide announcement — offline players get it via their mailbox                   |
+| `/joinmsg <add\|list\|remove\|clear\|cooldown\|preview>` *(admin)* | Manage the automatic messages shown to players when they join          |
 
 ![Managing a group](https://cdn.modrinth.com/data/cached_images/6507e2c3fcbe5ce404ff263ec6c14610b34823fc_0.webp)
 
@@ -62,5 +67,5 @@ All group and message data is stored locally on your server (`plugins/GroupChat/
 ## Notes
 
 - Group names: 2–24 characters, letters/numbers/underscores, case-insensitive
-- Permissions: `groupchat.use` (default `true`) gates all commands, `groupchat.admin` (default `op`, reserved)
+- Permissions: `groupchat.use` (default `true`) gates all commands, `groupchat.admin` (default `op`) gates `/announce` and `/joinmsg`
 - Mailbox: hard caps 500 chars / 200 messages per player, `§` sanitized, expired (>30d) pruned; group history keeps last 5 per group regardless of mailbox (`/group history`)
