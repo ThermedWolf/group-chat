@@ -48,6 +48,7 @@ Fabric server the same as any other mod.
 | `/groupgui` | Open the graphical menu (see below) |
 | `/announce [highlight] <message>` | Server-wide announcement (admins only) — see below |
 | `/joinmsg <add\|list\|remove\|clear\|cooldown\|preview> [args]` | Manage automatic join messages (admins only) — see below |
+| `/gc <command> [args]` | Umbrella command — *every* GroupChat command works as a `/gc` subcommand (`/groupchat` and `/gchat` are aliases), so autocomplete doubles as command discovery |
 
 Offline members of a group, or an offline `/pm` target, get the message
 stored in their mailbox. On join, they see:
@@ -136,6 +137,18 @@ Opens a chest-style menu with three options:
   a player to it, leave it, or go back.
 - **Message a Player** — lists online players. Click one to start a
   private message.
+
+Admins also get a fourth entry, **Server Tools** (command block icon),
+with:
+
+- **Announce** / **Announce (Highlighted)** — arms compose mode; your next
+  chat message goes out as a server-wide announcement (see
+  [announcements](#server-wide-announcements-announce-admins-only)).
+- **Join Messages** — lists the configured join messages (click one to
+  remove it), an **Add join message** button (compose mode again), and a
+  **Cooldown** dial: left-click steps the cooldown up, right-click steps it
+  down, through the presets 0 / 15 / 30 / 60 / 120 / 360 / 720 / 1440 /
+  10080 minutes.
 
 Both "message this group" and "message this player" work the same way:
 picking a target closes the GUI and arms compose mode, then whatever you

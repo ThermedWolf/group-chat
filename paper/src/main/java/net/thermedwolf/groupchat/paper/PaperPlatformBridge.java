@@ -60,6 +60,12 @@ public class PaperPlatformBridge implements PlatformBridge {
     }
 
     @Override
+    public boolean isAdmin(UUID uuid) {
+        Player player = Bukkit.getPlayer(uuid);
+        return player != null && player.hasPermission("groupchat.admin");
+    }
+
+    @Override
     public String getName(UUID uuid) {
         // Check cache first — avoids blocking Bukkit.getOfflinePlayer on hot paths
         String cached = uuidToNameCache.get(uuid);

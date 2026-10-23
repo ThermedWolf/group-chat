@@ -20,7 +20,8 @@ Available for **both Paper and Fabric** — same features, same commands, same d
 - **Full group management** — create, invite, accept/decline, leave, and owner-only kick
 - **Message history** — last 5 messages per group, per player (`/group history`, `/gmsg history`) — so you can catch up after being AFK
 - **Toggle chat** — lock your chat to a group (`/group toggle`) and just type normally, no prefix needed until you toggle off or type `cancel`
-- **Graphical menu** — `/groupgui` opens a point-and-click interface for creating groups, browsing your groups, inviting or kicking members, and picking who to message, if you'd rather not remember command syntax
+- **Graphical menu** — `/groupgui` opens a point-and-click interface for creating groups, browsing your groups, inviting or kicking members, and picking who to message, if you'd rather not remember command syntax. Admins also get **Server Tools** in the menu: send announcements and manage join messages without touching a command
+- **Find everything with `/gc`** — every GroupChat command is also a subcommand of `/gc` (aliases `/groupchat` and `/gchat`), so typing `/gc ` lists them all in autocomplete
 - **Tab-completion everywhere** — group names, player names, and pending invites all autocomplete
 - **Zero external dependencies** — just the plugin/mod, no other downloads required beyond Fabric API on the Fabric side
 
@@ -47,6 +48,7 @@ Available for **both Paper and Fabric** — same features, same commands, same d
 | `/dm <player> <message>`                           | Private message; queued if they're offline                                            |
 | `/unread [page\|clear]`                            | Read and clear your queued messages (paginated)                                       |
 | `/groupgui`                                        | Open the graphical menu                                                               |
+| `/gc <command> [args]`                             | Umbrella — every command above also works as a `/gc` subcommand (`/groupchat` and `/gchat` too) |
 | `/announce [highlight] <message>` *(admin)*        | Server-wide announcement — offline players get it via their mailbox                   |
 | `/joinmsg <add\|list\|remove\|clear\|cooldown\|preview>` *(admin)* | Manage the automatic messages shown to players when they join          |
 

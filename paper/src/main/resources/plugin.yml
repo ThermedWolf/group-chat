@@ -39,3 +39,12 @@ commands:
     description: Manage the automatic messages shown to players when they join
     usage: "/joinmsg <add|list|remove|clear|cooldown|preview> [args]"
     permission: groupchat.admin
+  gc:
+    description: Umbrella command - every GroupChat command works as /gc <command>
+    usage: "/gc <group|gmsg|gmoffline|dm|unread|groupgui|announce|joinmsg> [args]"
+  groupchat:
+    description: Umbrella command - every GroupChat command works as /groupchat <command>
+    usage: "/groupchat <group|gmsg|gmoffline|dm|unread|groupgui|announce|joinmsg> [args]"
+  gchat:
+    description: Umbrella command - every GroupChat command works as /gchat <command>
+    usage: "/gchat <group|gmsg|gmoffline|dm|unread|groupgui|announce|joinmsg> [args]"

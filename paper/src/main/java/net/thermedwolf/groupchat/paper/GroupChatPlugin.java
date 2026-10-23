@@ -47,6 +47,23 @@ public class GroupChatPlugin extends JavaPlugin {
         getCommand("joinmsg").setExecutor(joinMsgCommand);
         getCommand("joinmsg").setTabCompleter(joinMsgCommand);
 
+        // /gc, /groupchat, /gchat - umbrella commands whose subcommands are all
+        // GroupChat commands, so autocomplete doubles as command discovery.
+        GroupChatDispatchCommand dispatch = new GroupChatDispatchCommand()
+                .register("group", groupCommand)
+                .register("gmsg", gmsgCommand)
+                .register("gm", gmsgCommand)
+                .register("gmoffline", gmOfflineCommand)
+                .register("dm", dmCommand)
+                .register("unread", new UnreadCommand(service))
+                .register("groupgui", new GroupGuiCommand(gui))
+                .register("announce", announceCommand)
+                .register("joinmsg", joinMsgCommand);
+        for (String name : new String[]{"gc", "groupchat", "gchat"}) {
+            getCommand(name).setExecutor(dispatch);
+            getCommand(name).setTabCompleter(dispatch);
+        }
+
         getServer().getPluginManager().registerEvents(new JoinListener(service), this);
         getServer().getPluginManager().registerEvents(new QuitListener(service), this);
         getServer().getPluginManager().registerEvents(new GuiListener(service, gui), this);

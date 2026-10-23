@@ -65,6 +65,15 @@ public class FabricPlatformBridge implements PlatformBridge {
     }
 
     @Override
+    public boolean isAdmin(UUID uuid) {
+        ServerPlayer player = server.getPlayerList().getPlayer(uuid);
+        // Same gate the admin commands use: gamemasters and above.
+        return player != null && player.permissions().hasPermission(
+                new net.minecraft.server.permissions.Permission.HasCommandLevel(
+                        net.minecraft.server.permissions.PermissionLevel.GAMEMASTERS));
+    }
+
+    @Override
     public String getName(UUID uuid) {
         ServerPlayer online = server.getPlayerList().getPlayer(uuid);
         if (online != null) {

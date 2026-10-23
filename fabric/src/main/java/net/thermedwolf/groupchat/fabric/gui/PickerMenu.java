@@ -22,7 +22,10 @@ public class PickerMenu extends ChestMenu {
 
     @FunctionalInterface
     public interface ClickHandler {
-        void onClick(int slotIndex, ServerPlayer player);
+        /**
+         * @param button vanilla click button: 0 = left, 1 = right.
+         */
+        void onClick(int slotIndex, int button, ServerPlayer player);
     }
 
     private final ClickHandler clickHandler;
@@ -52,7 +55,7 @@ public class PickerMenu extends ChestMenu {
     @Override
     public void clicked(int slotId, int button, ContainerInput input, Player player) {
         if (slotId >= 0 && slotId < this.getContainer().getContainerSize() && player instanceof ServerPlayer serverPlayer) {
-            clickHandler.onClick(slotId, serverPlayer);
+            clickHandler.onClick(slotId, button, serverPlayer);
         }
         // Deliberately not calling super.clicked(...) - we never want the
         // normal pick-up/place/shift-click item-movement behavior here.

@@ -124,4 +124,40 @@ public final class GuiHolders {
             return inventory;
         }
     }
+
+    public static class ServerToolsHolder implements GroupChatHolder {
+        private Inventory inventory;
+
+        public void setInventory(Inventory inventory) {
+            this.inventory = inventory;
+        }
+
+        @Override
+        public @NotNull Inventory getInventory() {
+            return inventory;
+        }
+    }
+
+    /** Lists the configured join messages; slot i corresponds to message id i+1. */
+    public static class JoinMessagesHolder implements GroupChatHolder {
+        private int messageCount;
+        private Inventory inventory;
+
+        public void setMessageCount(int messageCount) {
+            this.messageCount = messageCount;
+        }
+
+        public int getMessageCount() {
+            return messageCount;
+        }
+
+        public void setInventory(Inventory inventory) {
+            this.inventory = inventory;
+        }
+
+        @Override
+        public @NotNull Inventory getInventory() {
+            return inventory;
+        }
+    }
 }

@@ -633,6 +633,11 @@ public class GroupChatService {
         return joinMessages.getMessageCount();
     }
 
+    /** The raw join message texts, in list order (index i = id i+1). */
+    public List<String> listJoinMessageTexts() {
+        return joinMessages.getMessages();
+    }
+
     public int getJoinMessageCooldown() {
         return joinMessages.getCooldownMinutes();
     }
@@ -1119,6 +1124,25 @@ public class GroupChatService {
                 + ". Type &ccancel&e to back out.");
     }
 
+    /** Call when the player picks "send announcement" (or the highlighted variant) in the GUI. */
+    public CommandResult startComposeAnnouncement(UUID sender, boolean highlight) {
+        composeSession.beginAnnouncement(sender, highlight);
+        return CommandResult.ok(highlight
+                ? "&eType your announcement in chat and send it - it'll go to everyone, &lhighlighted&r&e. Type &ccancel&e to back out."
+                : "&eType your announcement in chat and send it - it'll go to everyone. Type &ccancel&e to back out.");
+    }
+
+    /** Call when the player picks "add join message" in the GUI. */
+    public CommandResult startComposeJoinMessage(UUID sender) {
+        composeSession.beginJoinMessage(sender);
+        return CommandResult.ok("&eType the join message in chat and send it - it'll be added to the join messages. Type &ccancel&e to back out.");
+    }
+
+    /** Whether this player is a GroupChat admin (drives the GUI's admin tools). */
+    public boolean isAdmin(UUID uuid) {
+        return bridge.isAdmin(uuid);
+    }
+
     public boolean isComposing(UUID uuid) {
         return composeSession.isComposing(uuid);
     }
@@ -1142,9 +1166,12 @@ public class GroupChatService {
             return Optional.of(CommandResult.ok(null));
         }
 
-        CommandResult result = pending.isGroup()
-                ? sendGroupMessage(sender, pending.targetName(), message)
-                : sendDirectMessage(sender, pending.targetName(), message);
+        CommandResult result = switch (pending.type()) {
+            case GROUP -> sendGroupMessage(sender, pending.target(), message);
+            case DM -> sendDirectMessage(sender, pending.target(), message);
+            case ANNOUNCE, ANNOUNCE_HIGHLIGHT -> sendServerAnnouncement(sender, message, pending.isHighlight());
+            case JOIN_MESSAGE -> addJoinMessage(message);
+        };
 
         if (result.getMessage() != null) {
             bridge.sendMessage(sender, result.getMessage());

@@ -34,21 +34,132 @@ public class FabricGuiManager {
 
     // ---- Main menu ----
 
+    /** Cooldown presets cycled through in the join messages menu. */
+    static final int[] COOLDOWN_PRESETS = {0, 15, 30, 60, 120, 360, 720, 1440, 10_080};
+
     public void openMainMenu(ServerPlayer player) {
         SimpleContainer container = new SimpleContainer(27);
         container.setItem(11, item(Items.WRITABLE_BOOK, "&aCreate Group", "&7Start a new group chat"));
         container.setItem(13, item(Items.BOOK, "&eMy Groups", "&7View, message, invite, or leave"));
         container.setItem(15, item(Items.PLAYER_HEAD, "&bMessage a Player", "&7Send a private message"));
+        if (service.isAdmin(player.getUUID())) {
+            container.setItem(22, item(Items.COMMAND_BLOCK, "&cServer Tools",
+                    "&7Announcements & join messages", "&8Admin only"));
+        }
 
-        open(player, 3, container, "GroupChat", (slot, p) -> {
+        open(player, 3, container, "GroupChat", (slot, button, p) -> {
             switch (slot) {
                 case 11 -> openCreateGroupAnvil(p);
                 case 13 -> openGroupList(p);
                 case 15 -> openPlayerPicker(p, PickerMode.MESSAGE_PLAYER, null);
+                case 22 -> {
+                    // Item is only shown to admins, but re-check so a stale
+                    // menu can't be used to reach the tools.
+                    if (service.isAdmin(p.getUUID())) {
+                        openServerTools(p);
+                    }
+                }
                 default -> {
                 }
             }
         });
+    }
+
+    // ---- Server tools (announcements / join messages) ----
+
+    public void openServerTools(ServerPlayer player) {
+        SimpleContainer container = new SimpleContainer(27);
+        container.setItem(11, item(Items.BELL, "&6Announce",
+                "&7Send a message to everyone online", "&7Offline players get it in their mailbox"));
+        container.setItem(13, item(Items.GLOWSTONE_DUST, "&6Announce (Highlighted)",
+                "&7Same as announce, but it also pops up", "&7on screen with a sound"));
+        container.setItem(15, item(Items.WRITABLE_BOOK, "&eJoin Messages",
+                "&7Messages shown to players when they join",
+                "&7Current cooldown: &a" + service.getJoinMessageCooldown() + " min"));
+        container.setItem(22, item(Items.ARROW, "&7Back"));
+
+        open(player, 3, container, "Server Tools", (slot, button, p) -> {
+            switch (slot) {
+                case 11 -> {
+                    CommandResult result = service.startComposeAnnouncement(p.getUUID(), false);
+                    p.closeContainer();
+                    sendResult(p, result);
+                }
+                case 13 -> {
+                    CommandResult result = service.startComposeAnnouncement(p.getUUID(), true);
+                    p.closeContainer();
+                    sendResult(p, result);
+                }
+                case 15 -> openJoinMessages(p);
+                case 22 -> openMainMenu(p);
+                default -> {
+                }
+            }
+        });
+    }
+
+    public void openJoinMessages(ServerPlayer player) {
+        List<String> stored = service.listJoinMessageTexts();
+        SimpleContainer container = new SimpleContainer(27);
+
+        for (int i = 0; i < stored.size() && i < 10; i++) {
+            container.setItem(i, item(Items.PAPER, "&eJoin message #" + (i + 1),
+                    "&f" + stored.get(i), "&8Click to remove"));
+        }
+        if (stored.isEmpty()) {
+            container.setItem(4, item(Items.BARRIER, "&7No join messages yet"));
+        }
+        container.setItem(11, item(Items.EMERALD, "&aAdd join message",
+                "&7Next chat message becomes a new", "&7join message"));
+        container.setItem(13, cooldownItem(service.getJoinMessageCooldown()));
+        container.setItem(22, item(Items.ARROW, "&7Back"));
+
+        open(player, 3, container, "Join Messages", (slot, button, p) -> {
+            if (slot == 22) {
+                openServerTools(p);
+                return;
+            }
+            if (slot >= 0 && slot < stored.size()) {
+                CommandResult result = service.removeJoinMessage(slot + 1);
+                sendResult(p, result);
+                openJoinMessages(p);
+                return;
+            }
+            switch (slot) {
+                case 11 -> {
+                    CommandResult result = service.startComposeJoinMessage(p.getUUID());
+                    p.closeContainer();
+                    sendResult(p, result);
+                }
+                case 13 -> {
+                    int direction = button == 1 ? -1 : 1;
+                    int next = nextCooldown(service.getJoinMessageCooldown(), direction);
+                    service.setJoinMessageCooldown(next);
+                    openJoinMessages(p);
+                }
+                default -> {
+                }
+            }
+        });
+    }
+
+    private ItemStack cooldownItem(int currentMinutes) {
+        return item(Items.CLOCK, "&bCooldown: &a" + currentMinutes + " min",
+                "&7Join messages show at most once per window.",
+                "&eLeft-click: &7more &8(&7" + nextCooldown(currentMinutes, 1) + "&8)",
+                "&eRight-click: &7less &8(&7" + nextCooldown(currentMinutes, -1) + "&8)",
+                "&80 = show on every join");
+    }
+
+    /** Next cooldown preset in the given direction, wrapping around. */
+    static int nextCooldown(int currentMinutes, int direction) {
+        for (int i = 0; i < COOLDOWN_PRESETS.length; i++) {
+            if (COOLDOWN_PRESETS[i] == currentMinutes) {
+                int next = (i + direction + COOLDOWN_PRESETS.length) % COOLDOWN_PRESETS.length;
+                return COOLDOWN_PRESETS[next];
+            }
+        }
+        return COOLDOWN_PRESETS[0];
     }
 
     // ---- My Groups list ----
@@ -73,7 +184,7 @@ public class FabricGuiManager {
         int backSlot = size - 1;
         container.setItem(backSlot, item(Items.ARROW, "&cBack"));
 
-        open(player, rows, container, "My Groups", (slotClicked, p) -> {
+        open(player, rows, container, "My Groups", (slotClicked, button, p) -> {
             if (slotClicked == backSlot) {
                 openMainMenu(p);
                 return;
@@ -101,7 +212,7 @@ public class FabricGuiManager {
             container.setItem(7, item(Items.TNT, "&cLeave Group"));
             container.setItem(8, item(Items.ARROW, "&7Back"));
 
-            open(player, 1, container, group.getName(), (slot, p) -> {
+            open(player, 1, container, group.getName(), (slot, button, p) -> {
                 switch (slot) {
                     case 1 -> {
                         CommandResult result = service.startComposeGroupMessage(p.getUUID(), group.getName());
@@ -163,7 +274,7 @@ public class FabricGuiManager {
             case MESSAGE_PLAYER -> "Message a player";
         };
 
-        open(player, rows, container, title, (slotClicked, p) -> {
+        open(player, rows, container, title, (slotClicked, button, p) -> {
             if (slotClicked == backSlot) {
                 if (mode == PickerMode.MESSAGE_PLAYER) {
                     openMainMenu(p);

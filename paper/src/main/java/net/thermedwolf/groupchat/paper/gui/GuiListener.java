@@ -46,6 +46,10 @@ public class GuiListener implements Listener {
             handlePlayerPicker(player, picker, event.getCurrentItem(), event.getSlot(), event.getInventory().getSize());
         } else if (holder instanceof GuiHolders.CreateGroupAnvilHolder) {
             handleAnvil(player, event.getSlot(), event.getCurrentItem());
+        } else if (holder instanceof GuiHolders.ServerToolsHolder) {
+            handleServerTools(player, event.getSlot());
+        } else if (holder instanceof GuiHolders.JoinMessagesHolder joinHolder) {
+            handleJoinMessages(player, joinHolder, event.getSlot(), event.getClick().isRightClick());
         }
     }
 
@@ -54,6 +58,66 @@ public class GuiListener implements Listener {
             case 11 -> gui.openCreateGroupAnvil(player);
             case 13 -> gui.openGroupList(player);
             case 15 -> gui.openPlayerPicker(player, GuiHolders.PickerMode.MESSAGE_PLAYER, null);
+            case 22 -> {
+                // Item is only shown to admins, but re-check so a stale menu
+                // can't be used to reach the tools.
+                if (service.isAdmin(player.getUniqueId())) {
+                    gui.openServerTools(player);
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    private void handleServerTools(Player player, int slot) {
+        if (!service.isAdmin(player.getUniqueId())) {
+            return;
+        }
+        switch (slot) {
+            case 11 -> {
+                CommandResult result = service.startComposeAnnouncement(player.getUniqueId(), false);
+                player.closeInventory();
+                gui.sendResult(player, result);
+            }
+            case 13 -> {
+                CommandResult result = service.startComposeAnnouncement(player.getUniqueId(), true);
+                player.closeInventory();
+                gui.sendResult(player, result);
+            }
+            case 15 -> gui.openJoinMessages(player);
+            case 22 -> gui.openMainMenu(player);
+            default -> {
+            }
+        }
+    }
+
+    private void handleJoinMessages(Player player, GuiHolders.JoinMessagesHolder holder, int slot, boolean rightClick) {
+        if (!service.isAdmin(player.getUniqueId())) {
+            return;
+        }
+        if (slot == 22) {
+            gui.openServerTools(player);
+            return;
+        }
+        if (slot >= 0 && slot < holder.getMessageCount()) {
+            CommandResult result = service.removeJoinMessage(slot + 1);
+            gui.sendResult(player, result);
+            gui.openJoinMessages(player);
+            return;
+        }
+        switch (slot) {
+            case 11 -> {
+                CommandResult result = service.startComposeJoinMessage(player.getUniqueId());
+                player.closeInventory();
+                gui.sendResult(player, result);
+            }
+            case 13 -> {
+                int direction = rightClick ? -1 : 1;
+                int next = GuiManager.nextCooldown(service.getJoinMessageCooldown(), direction);
+                service.setJoinMessageCooldown(next);
+                gui.openJoinMessages(player);
+            }
             default -> {
             }
         }

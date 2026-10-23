@@ -26,6 +26,13 @@ public interface PlatformBridge {
     /** UUIDs of every player currently online. */
     List<UUID> getOnlinePlayerUuids();
 
+    /**
+     * Whether this player counts as a GroupChat admin (groupchat.admin on
+     * Paper, gamemaster permission level on Fabric). Controls whether the
+     * admin tools appear in the GUI; the commands themselves gate separately.
+     */
+    boolean isAdmin(UUID uuid);
+
     /** Best-effort name lookup, online or offline. */
     String getName(UUID uuid);
 

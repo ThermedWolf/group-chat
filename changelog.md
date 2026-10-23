@@ -23,6 +23,12 @@ This project follows [Semantic Versioning](https://semver.org/). The initial pub
 - **Message styling** (`MarkdownFormat`, core): Markdown/MiniMessage-style subset → legacy `§` codes, identical on both platforms. `**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `||spoiler||`, `` `code` ``, all 16 colour tags (`<red>…</red>`, …), style tags (`<bold>`, `<italic>`, `<underlined>`, `<strikethrough>`, `<obfuscated>`, `<reset>` + short forms) with proper nesting (close re-applies still-open codes). Raw `§` in input stripped first; legacy `&`-codes keep working. Applies to announcements + join messages.
 - **Platform bridge additions** (`PlatformBridge`): `getOnlinePlayerUuids()` and `sendHighlight(UUID, String)` (Paper: Adventure `Title` + `Sound.ENTITY_PLAYER_LEVELUP`; Fabric: `sendOverlayMessage`).
 - **Mailbox message types** (`PendingMessage`): new `type` field (`group`/`dm`/`announcement`) with legacy-JSON fallback based on `context`; `/unread` renders announcement entries with the `[Announce]` tag.
+- **GUI: Server Tools** (admin-only entry in the `/groupgui` main menu, command-block icon):
+  - **Announce** / **Announce (Highlighted)** — compose mode: the next chat message is sent as a server-wide announcement (plain or highlighted).
+  - **Join Messages** menu — lists configured join messages (click to remove), **Add join message** via compose mode, and a **Cooldown** dial cycled with left/right-click through presets 0/15/30/60/120/360/720/1440/10080 minutes.
+  - New `PlatformBridge.isAdmin(UUID)` drives visibility (Paper: `groupchat.admin`; Fabric: gamemaster level); click handlers re-check server-side so stale menus can't be used.
+  - `ComposeSession` gained compose targets (`ANNOUNCE`, `ANNOUNCE_HIGHLIGHT`, `JOIN_MESSAGE`) alongside the existing group/DM ones; `PickerMenu.ClickHandler` now receives the vanilla click button (needed for the cooldown dial).
+- **Umbrella commands** — `/gc`, plus aliases `/groupchat` and `/gchat`: every GroupChat command (`group`, `gmsg`, `gmoffline`, `dm`, `unread`, `groupgui`, `announce`, `joinmsg`) works as a subcommand, so autocomplete doubles as command discovery. Paper: a dispatch executor delegates to the existing executors (labels preserved so usage strings read `/gc announce ...`); Fabric: the registration was refactored into per-command builders registered both standalone and under `/gc`, with `/groupchat`/`/gchat` as Brigadier redirects (the same alias pattern vanilla uses for `/xp` → `/experience`). `/gc` with no arguments prints the command list.
 
 ### Fixed
 

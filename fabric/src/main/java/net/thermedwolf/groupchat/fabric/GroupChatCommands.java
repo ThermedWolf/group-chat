@@ -4,7 +4,9 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
+import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.tree.LiteralCommandNode;
 import net.thermedwolf.groupchat.core.ChatFormat;
 import net.thermedwolf.groupchat.core.CommandResult;
 import net.thermedwolf.groupchat.core.GroupChatService;
@@ -14,13 +16,21 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.util.List;
 import java.util.function.Function;
 
 import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
 /**
- * Confirmed working: this compiled clean and ran on a real 26.1.2 server
+ * All GroupChat command registration for Fabric. Every top-level command is
+ * built by its own builder method so the same tree can be registered
+ * standalone (/gmsg, /dm, ...) and as subcommands under the /gc umbrella
+ * (also /groupchat, /gchat via Brigadier redirect - the same alias pattern
+ * vanilla uses for /xp -> /experience), so typing "/gc " lists every
+ * GroupChat command in autocomplete.
+ *
+ * <p>Confirmed working: compiled and ran on a real 26.1.2 server
  * (CommandSourceStack, Commands.literal/argument, Component,
  * sendSuccess/getPlayerOrException all correct as written).
  * SharedSuggestionProvider.suggest(...) confirmed against the real
@@ -28,8 +38,49 @@ import static net.minecraft.commands.Commands.literal;
  */
 public class GroupChatCommands {
 
+    private static final List<String> UMBRELLA_SUBCOMMANDS =
+            List.of("group", "gmsg", "gmoffline", "dm", "unread", "groupgui", "announce", "joinmsg");
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-        dispatcher.register(literal("group")
+        // Standalone commands - every documented syntax keeps working as-is.
+        // Each call gets a fresh builder instance; Brigadier nodes may not be
+        // shared between two parents.
+        dispatcher.register(groupBuilder());
+        dispatcher.register(groupMessageBuilder("gmsg", false));
+        dispatcher.register(groupMessageBuilder("gm", false));
+        dispatcher.register(groupMessageBuilder("gmoffline", true));
+        dispatcher.register(dmBuilder());
+        dispatcher.register(unreadBuilder());
+        dispatcher.register(groupGuiBuilder());
+        dispatcher.register(announceBuilder());
+        dispatcher.register(joinMsgBuilder());
+
+        // Umbrella: /gc <command> ... with /groupchat and /gchat as aliases.
+        LiteralCommandNode<CommandSourceStack> gcNode = dispatcher.register(literal("gc")
+                .executes(GroupChatCommands::printUmbrellaHelp)
+                .then(groupBuilder())
+                .then(groupMessageBuilder("gmsg", false))
+                .then(groupMessageBuilder("gmoffline", true))
+                .then(dmBuilder())
+                .then(unreadBuilder())
+                .then(groupGuiBuilder())
+                .then(announceBuilder())
+                .then(joinMsgBuilder()));
+        dispatcher.register(literal("groupchat").redirect(gcNode));
+        dispatcher.register(literal("gchat").redirect(gcNode));
+    }
+
+    private static int printUmbrellaHelp(CommandContext<CommandSourceStack> ctx) {
+        String text = ChatFormat.color("&bGroupChat commands: &e"
+                + String.join("&7, &e", UMBRELLA_SUBCOMMANDS));
+        ctx.getSource().sendSuccess(() -> Component.literal(text), false);
+        return 1;
+    }
+
+    // ---- /group ----
+
+    private static LiteralArgumentBuilder<CommandSourceStack> groupBuilder() {
+        return literal("group")
                 .then(literal("create").then(argument("name", StringArgumentType.word())
                         .executes(ctx -> run(ctx.getSource(),
                                 src -> service().createGroup(player(src).getUUID(),
@@ -201,130 +252,10 @@ public class GroupChatCommands {
                         .then(literal("toggle")
                                 .executes(ctx -> run(ctx.getSource(),
                                         src -> service().toggleGroupChat(player(src).getUUID(),
-                                                StringArgumentType.getString(ctx, "groupName")))))));
-
-        registerGroupMessageCommand(dispatcher, "gmsg", false);
-        registerGroupMessageCommand(dispatcher, "gm", false);
-        registerGroupMessageCommand(dispatcher, "gmoffline", true);
-
-        dispatcher.register(literal("dm")
-                .then(argument("player", StringArgumentType.word())
-                        .suggests(GroupChatCommands::suggestOtherOnlinePlayers)
-                        .then(argument("message", StringArgumentType.greedyString())
-                                .executes(ctx -> {
-                                    CommandResult result = service().sendDirectMessage(
-                                            player(ctx.getSource()).getUUID(),
-                                            StringArgumentType.getString(ctx, "player"),
-                                            StringArgumentType.getString(ctx, "message"));
-                                    sendResult(ctx.getSource(), result);
-                                    return 1;
-                                }))));
-
-        dispatcher.register(literal("unread")
-                .then(argument("page", StringArgumentType.word())
-                        .executes(ctx -> {
-                            CommandSourceStack source = ctx.getSource();
-                            String raw = StringArgumentType.getString(ctx, "page");
-                            if (raw.equalsIgnoreCase("clear")) {
-                                for (String line : service().viewAndClearUnread(player(source).getUUID())) {
-                                    source.sendSuccess(() -> Component.literal(line), false);
-                                }
-                                return 1;
-                            }
-                            try {
-                                int page = Integer.parseInt(raw);
-                                for (String line : service().viewUnreadPage(player(source).getUUID(), page)) {
-                                    source.sendSuccess(() -> Component.literal(line), false);
-                                }
-                            } catch (NumberFormatException ex) {
-                                for (String line : service().viewAndClearUnread(player(source).getUUID())) {
-                                    source.sendSuccess(() -> Component.literal(line), false);
-                                }
-                            }
-                            return 1;
-                        }))
-                .executes(ctx -> {
-                    CommandSourceStack source = ctx.getSource();
-                    for (String line : service().viewAndClearUnread(player(source).getUUID())) {
-                        source.sendSuccess(() -> Component.literal(line), false);
-                    }
-                    return 1;
-                }));
-
-        dispatcher.register(literal("groupgui").executes(ctx -> {
-            GroupChatMod.gui.openMainMenu(player(ctx.getSource()));
-            return 1;
-        }));
-
-        registerAnnounceCommand(dispatcher);
-        registerJoinMsgCommand(dispatcher);
+                                                StringArgumentType.getString(ctx, "groupName"))))));
     }
 
-    /**
-     * /announce [highlight] <message> - server-wide announcement, admin-only
-     * (gamemaster permission level, console allowed).
-     */
-    private static void registerAnnounceCommand(CommandDispatcher<CommandSourceStack> dispatcher) {
-        dispatcher.register(literal("announce")
-                .requires(GroupChatCommands::hasGamemasterPermission)
-                .then(literal("highlight")
-                        .then(argument("message", StringArgumentType.greedyString())
-                                .executes(ctx -> {
-                                    CommandResult result = service().sendServerAnnouncement(
-                                            sourceUuidOrNull(ctx.getSource()),
-                                            StringArgumentType.getString(ctx, "message"),
-                                            true);
-                                    sendResult(ctx.getSource(), result);
-                                    return 1;
-                                })))
-                .then(argument("message", StringArgumentType.greedyString())
-                        .executes(ctx -> {
-                            CommandResult result = service().sendServerAnnouncement(
-                                    sourceUuidOrNull(ctx.getSource()),
-                                    StringArgumentType.getString(ctx, "message"),
-                                    false);
-                            sendResult(ctx.getSource(), result);
-                            return 1;
-                        })));
-    }
-
-    /**
-     * /joinmsg - manage the automatic messages shown to players when they
-     * join (with a configurable cooldown), admin-only, console allowed
-     * except preview.
-     */
-    private static void registerJoinMsgCommand(CommandDispatcher<CommandSourceStack> dispatcher) {
-        dispatcher.register(literal("joinmsg")
-                .requires(GroupChatCommands::hasGamemasterPermission)
-                .then(literal("add")
-                        .then(argument("message", StringArgumentType.greedyString())
-                                .executes(ctx -> run(ctx.getSource(),
-                                        src -> service().addJoinMessage(StringArgumentType.getString(ctx, "message"))))))
-                .then(literal("list").executes(ctx -> run(ctx.getSource(), src -> service().listJoinMessages())))
-                .then(literal("remove")
-                        .then(argument("id", IntegerArgumentType.integer(1))
-                                .executes(ctx -> run(ctx.getSource(),
-                                        src -> service().removeJoinMessage(IntegerArgumentType.getInteger(ctx, "id"))))))
-                .then(literal("clear").executes(ctx -> run(ctx.getSource(), src -> service().clearJoinMessages())))
-                .then(literal("cooldown")
-                        .then(argument("minutes", IntegerArgumentType.integer(0, JoinMessageStore.MAX_COOLDOWN_MINUTES))
-                                .executes(ctx -> run(ctx.getSource(),
-                                        src -> service().setJoinMessageCooldown(IntegerArgumentType.getInteger(ctx, "minutes")))))
-                        .executes(ctx -> {
-                            CommandSourceStack source = ctx.getSource();
-                            source.sendSuccess(() -> Component.literal(ChatFormat.color(
-                                    "&7Current join message cooldown: &e" + service().getJoinMessageCooldown()
-                                            + " &7minutes (0 = every join).")), false);
-                            return 1;
-                        }))
-                .then(literal("preview").executes(ctx -> {
-                    CommandSourceStack source = ctx.getSource();
-                    for (String line : service().previewJoinMessages()) {
-                        source.sendSuccess(() -> Component.literal(line), false);
-                    }
-                    return 1;
-                })));
-    }
+    // ---- /gmsg, /gm, /gmoffline ----
 
     /**
      * /gmsg, /gm (alias), and /gmoffline (persistent variant).
@@ -332,9 +263,8 @@ public class GroupChatCommands {
      * plus toggle/history shortcuts: /gmsg toggle [group], /gmsg history [group] [count],
      * and group-first: /gmsg <group> toggle, /gmsg <group> history [count]
      */
-    private static void registerGroupMessageCommand(CommandDispatcher<CommandSourceStack> dispatcher, String name,
-            boolean persistent) {
-        LiteralArgumentBuilder<CommandSourceStack> command = literal(name)
+    private static LiteralArgumentBuilder<CommandSourceStack> groupMessageBuilder(String name, boolean persistent) {
+        return literal(name)
                 // /gmsg toggle [group]
                 .then(literal("toggle")
                         .then(argument("group", StringArgumentType.word())
@@ -443,25 +373,156 @@ public class GroupChatCommands {
                             sendResult(ctx.getSource(), result);
                             return 1;
                         }));
-        dispatcher.register(command);
     }
 
+    // ---- /dm ----
+
+    private static LiteralArgumentBuilder<CommandSourceStack> dmBuilder() {
+        return literal("dm")
+                .then(argument("player", StringArgumentType.word())
+                        .suggests(GroupChatCommands::suggestOtherOnlinePlayers)
+                        .then(argument("message", StringArgumentType.greedyString())
+                                .executes(ctx -> {
+                                    CommandResult result = service().sendDirectMessage(
+                                            player(ctx.getSource()).getUUID(),
+                                            StringArgumentType.getString(ctx, "player"),
+                                            StringArgumentType.getString(ctx, "message"));
+                                    sendResult(ctx.getSource(), result);
+                                    return 1;
+                                })));
+    }
+
+    // ---- /unread ----
+
+    private static LiteralArgumentBuilder<CommandSourceStack> unreadBuilder() {
+        return literal("unread")
+                .then(argument("page", StringArgumentType.word())
+                        .executes(ctx -> {
+                            CommandSourceStack source = ctx.getSource();
+                            String raw = StringArgumentType.getString(ctx, "page");
+                            if (raw.equalsIgnoreCase("clear")) {
+                                for (String line : service().viewAndClearUnread(player(source).getUUID())) {
+                                    source.sendSuccess(() -> Component.literal(line), false);
+                                }
+                                return 1;
+                            }
+                            try {
+                                int page = Integer.parseInt(raw);
+                                for (String line : service().viewUnreadPage(player(source).getUUID(), page)) {
+                                    source.sendSuccess(() -> Component.literal(line), false);
+                                }
+                            } catch (NumberFormatException ex) {
+                                for (String line : service().viewAndClearUnread(player(source).getUUID())) {
+                                    source.sendSuccess(() -> Component.literal(line), false);
+                                }
+                            }
+                            return 1;
+                        }))
+                .executes(ctx -> {
+                    CommandSourceStack source = ctx.getSource();
+                    for (String line : service().viewAndClearUnread(player(source).getUUID())) {
+                        source.sendSuccess(() -> Component.literal(line), false);
+                    }
+                    return 1;
+                });
+    }
+
+    // ---- /groupgui ----
+
+    private static LiteralArgumentBuilder<CommandSourceStack> groupGuiBuilder() {
+        return literal("groupgui").executes(ctx -> {
+            GroupChatMod.gui.openMainMenu(player(ctx.getSource()));
+            return 1;
+        });
+    }
+
+    // ---- /announce ----
+
+    /**
+     * /announce [highlight] <message> - server-wide announcement, admin-only
+     * (gamemaster permission level, console allowed).
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> announceBuilder() {
+        return literal("announce")
+                .requires(GroupChatCommands::hasGamemasterPermission)
+                .then(literal("highlight")
+                        .then(argument("message", StringArgumentType.greedyString())
+                                .executes(ctx -> {
+                                    CommandResult result = service().sendServerAnnouncement(
+                                            sourceUuidOrNull(ctx.getSource()),
+                                            StringArgumentType.getString(ctx, "message"),
+                                            true);
+                                    sendResult(ctx.getSource(), result);
+                                    return 1;
+                                })))
+                .then(argument("message", StringArgumentType.greedyString())
+                        .executes(ctx -> {
+                            CommandResult result = service().sendServerAnnouncement(
+                                    sourceUuidOrNull(ctx.getSource()),
+                                    StringArgumentType.getString(ctx, "message"),
+                                    false);
+                            sendResult(ctx.getSource(), result);
+                            return 1;
+                        }));
+    }
+
+    // ---- /joinmsg ----
+
+    /**
+     * /joinmsg - manage the automatic messages shown to players when they
+     * join (with a configurable cooldown), admin-only, console allowed.
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> joinMsgBuilder() {
+        return literal("joinmsg")
+                .requires(GroupChatCommands::hasGamemasterPermission)
+                .then(literal("add")
+                        .then(argument("message", StringArgumentType.greedyString())
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().addJoinMessage(StringArgumentType.getString(ctx, "message"))))))
+                .then(literal("list").executes(ctx -> run(ctx.getSource(), src -> service().listJoinMessages())))
+                .then(literal("remove")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().removeJoinMessage(IntegerArgumentType.getInteger(ctx, "id"))))))
+                .then(literal("clear").executes(ctx -> run(ctx.getSource(), src -> service().clearJoinMessages())))
+                .then(literal("cooldown")
+                        .then(argument("minutes", IntegerArgumentType.integer(0, JoinMessageStore.MAX_COOLDOWN_MINUTES))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().setJoinMessageCooldown(IntegerArgumentType.getInteger(ctx, "minutes")))))
+                        .executes(ctx -> {
+                            CommandSourceStack source = ctx.getSource();
+                            source.sendSuccess(() -> Component.literal(ChatFormat.color(
+                                    "&7Current join message cooldown: &e" + service().getJoinMessageCooldown()
+                                            + " &7minutes (0 = every join).")), false);
+                            return 1;
+                        }))
+                .then(literal("preview").executes(ctx -> {
+                    CommandSourceStack source = ctx.getSource();
+                    for (String line : service().previewJoinMessages()) {
+                        source.sendSuccess(() -> Component.literal(line), false);
+                    }
+                    return 1;
+                }));
+    }
+
+    // ---- suggestion helpers ----
+
     private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> suggestOwnGroups(
-            com.mojang.brigadier.context.CommandContext<CommandSourceStack> ctx,
+            CommandContext<CommandSourceStack> ctx,
             com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
         return SharedSuggestionProvider.suggest(service().getGroupNamesForPlayer(player(ctx.getSource()).getUUID()),
                 builder);
     }
 
     private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> suggestInvitedGroups(
-            com.mojang.brigadier.context.CommandContext<CommandSourceStack> ctx,
+            CommandContext<CommandSourceStack> ctx,
             com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
         return SharedSuggestionProvider.suggest(service().getInvitedGroupNames(player(ctx.getSource()).getUUID()),
                 builder);
     }
 
     private static java.util.concurrent.CompletableFuture<com.mojang.brigadier.suggestion.Suggestions> suggestOtherOnlinePlayers(
-            com.mojang.brigadier.context.CommandContext<CommandSourceStack> ctx,
+            CommandContext<CommandSourceStack> ctx,
             com.mojang.brigadier.suggestion.SuggestionsBuilder builder) {
         ServerPlayer self = player(ctx.getSource());
         String selfName = self.getName().getString();
@@ -469,6 +530,8 @@ public class GroupChatCommands {
         return SharedSuggestionProvider.suggest(
                 java.util.Arrays.stream(names).filter(n -> !n.equals(selfName)), builder);
     }
+
+    // ---- misc helpers ----
 
     private static GroupChatService service() {
         return GroupChatMod.service;

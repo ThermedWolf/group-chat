@@ -27,6 +27,9 @@ public class GuiManager {
 
     // ---- Main menu ----
 
+    /** Cooldown presets cycled through in the join messages menu. */
+    static final int[] COOLDOWN_PRESETS = {0, 15, 30, 60, 120, 360, 720, 1440, 10_080};
+
     public void openMainMenu(Player player) {
         GuiHolders.MainMenuHolder holder = new GuiHolders.MainMenuHolder();
         Inventory inv = Bukkit.createInventory(holder, 27, Component.text("GroupChat", NamedTextColor.DARK_PURPLE));
@@ -35,8 +38,72 @@ public class GuiManager {
         inv.setItem(11, namedItem(Material.WRITABLE_BOOK, "&aCreate Group", "&7Start a new group chat"));
         inv.setItem(13, namedItem(Material.BOOK, "&eMy Groups", "&7View, message, invite, or leave"));
         inv.setItem(15, namedItem(Material.PLAYER_HEAD, "&bMessage a Player", "&7Send a private message"));
+        if (service.isAdmin(player.getUniqueId())) {
+            inv.setItem(22, namedItem(Material.COMMAND_BLOCK, "&cServer Tools",
+                    "&7Announcements & join messages", "&8Admin only"));
+        }
 
         player.openInventory(inv);
+    }
+
+    // ---- Server tools (announcements / join messages) ----
+
+    public void openServerTools(Player player) {
+        GuiHolders.ServerToolsHolder holder = new GuiHolders.ServerToolsHolder();
+        Inventory inv = Bukkit.createInventory(holder, 27, Component.text("Server Tools", NamedTextColor.DARK_PURPLE));
+        holder.setInventory(inv);
+
+        inv.setItem(11, namedItem(Material.BELL, "&6Announce",
+                "&7Send a message to everyone online", "&7Offline players get it in their mailbox"));
+        inv.setItem(13, namedItem(Material.GLOWSTONE_DUST, "&6Announce (Highlighted)",
+                "&7Same as announce, but it also pops up", "&7on screen with a sound"));
+        inv.setItem(15, namedItem(Material.WRITABLE_BOOK, "&eJoin Messages",
+                "&7Messages shown to players when they join",
+                "&7Current cooldown: &a" + service.getJoinMessageCooldown() + " min"));
+        inv.setItem(22, namedItem(Material.ARROW, "&7Back"));
+
+        player.openInventory(inv);
+    }
+
+    public void openJoinMessages(Player player) {
+        List<String> stored = service.listJoinMessageTexts();
+        GuiHolders.JoinMessagesHolder holder = new GuiHolders.JoinMessagesHolder();
+        Inventory inv = Bukkit.createInventory(holder, 27, Component.text("Join Messages", NamedTextColor.DARK_PURPLE));
+        holder.setInventory(inv);
+        holder.setMessageCount(stored.size());
+
+        for (int i = 0; i < stored.size() && i < 10; i++) {
+            inv.setItem(i, namedItem(Material.PAPER, "&eJoin message #" + (i + 1),
+                    "&f" + stored.get(i), "&8Click to remove"));
+        }
+        if (stored.isEmpty()) {
+            inv.setItem(4, namedItem(Material.BARRIER, "&7No join messages yet"));
+        }
+        inv.setItem(11, namedItem(Material.EMERALD, "&aAdd join message",
+                "&7Next chat message becomes a new", "&7join message"));
+        inv.setItem(13, cooldownItem(service.getJoinMessageCooldown()));
+        inv.setItem(22, namedItem(Material.ARROW, "&7Back"));
+
+        player.openInventory(inv);
+    }
+
+    private ItemStack cooldownItem(int currentMinutes) {
+        return namedItem(Material.CLOCK, "&bCooldown: &a" + currentMinutes + " min",
+                "&7Join messages show at most once per window.",
+                "&eLeft-click: &7more &8(&7" + nextCooldown(currentMinutes, 1) + "&8)",
+                "&eRight-click: &7less &8(&7" + nextCooldown(currentMinutes, -1) + "&8)",
+                "&80 = show on every join");
+    }
+
+    /** Next cooldown preset in the given direction, wrapping around. */
+    static int nextCooldown(int currentMinutes, int direction) {
+        for (int i = 0; i < COOLDOWN_PRESETS.length; i++) {
+            if (COOLDOWN_PRESETS[i] == currentMinutes) {
+                int next = (i + direction + COOLDOWN_PRESETS.length) % COOLDOWN_PRESETS.length;
+                return COOLDOWN_PRESETS[next];
+            }
+        }
+        return COOLDOWN_PRESETS[0];
     }
 
     // ---- My Groups list ----
