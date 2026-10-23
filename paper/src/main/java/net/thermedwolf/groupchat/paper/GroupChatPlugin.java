@@ -39,6 +39,14 @@ public class GroupChatPlugin extends JavaPlugin {
         getCommand("unread").setExecutor(new UnreadCommand(service));
         getCommand("groupgui").setExecutor(new GroupGuiCommand(gui));
 
+        AnnounceCommand announceCommand = new AnnounceCommand(service);
+        getCommand("announce").setExecutor(announceCommand);
+        getCommand("announce").setTabCompleter(announceCommand);
+
+        JoinMsgCommand joinMsgCommand = new JoinMsgCommand(service);
+        getCommand("joinmsg").setExecutor(joinMsgCommand);
+        getCommand("joinmsg").setTabCompleter(joinMsgCommand);
+
         getServer().getPluginManager().registerEvents(new JoinListener(service), this);
         getServer().getPluginManager().registerEvents(new QuitListener(service), this);
         getServer().getPluginManager().registerEvents(new GuiListener(service, gui), this);

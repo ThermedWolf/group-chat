@@ -2,10 +2,16 @@ package net.thermedwolf.groupchat.paper;
 
 import net.thermedwolf.groupchat.core.ChatFormat;
 import net.thermedwolf.groupchat.core.PlatformBridge;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 
+import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -27,6 +33,28 @@ public class PaperPlatformBridge implements PlatformBridge {
         if (player != null) {
             player.sendMessage(ChatFormat.color(message));
         }
+    }
+
+    @Override
+    public void sendHighlight(UUID uuid, String message) {
+        Player player = Bukkit.getPlayer(uuid);
+        if (player == null) {
+            return;
+        }
+        // Message as subtitle (empty main title) - mid-screen emphasis without
+        // a big title block covering the view. Text arrives pre-translated to
+        // section-sign codes; parse it with the legacy serializer so the codes
+        // render as real styles (Adventure components don't interpret them).
+        player.showTitle(Title.title(
+                Component.empty(),
+                LegacyComponentSerializer.legacySection().deserialize(message),
+                Title.Times.times(Duration.ofMillis(500), Duration.ofMillis(3500), Duration.ofMillis(1000))));
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
+    }
+
+    @Override
+    public List<UUID> getOnlinePlayerUuids() {
+        return Bukkit.getOnlinePlayers().stream().map(Player::getUniqueId).toList();
     }
 
     @Override

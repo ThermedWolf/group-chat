@@ -3,8 +3,10 @@ package net.thermedwolf.groupchat.core;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -17,9 +19,15 @@ public class GroupChatService {
 
     private static final Logger LOGGER = Logger.getLogger(GroupChatService.class.getName());
 
+    private static final String ANNOUNCE_PREFIX = "&6[Announce]&r &f";
+    private static final String ANNOUNCE_HIGHLIGHT_PREFIX = "&6&l[ANNOUNCEMENT]&r &e";
+    private static final String SENDER_NAME_SERVER = "Server";
+
     private final GroupManager groupManager;
     private final MessageStore messageStore;
     private final GroupHistoryStore historyStore;
+    private final KnownPlayerStore knownPlayers;
+    private final JoinMessageStore joinMessages;
     private final PlatformBridge bridge;
     private final ComposeSession composeSession = new ComposeSession();
     private final ToggleSession toggleSession = new ToggleSession();
@@ -29,6 +37,8 @@ public class GroupChatService {
         this.groupManager = new GroupManager(dataFolder);
         this.messageStore = new MessageStore(dataFolder);
         this.historyStore = new GroupHistoryStore(dataFolder);
+        this.knownPlayers = new KnownPlayerStore(dataFolder);
+        this.joinMessages = new JoinMessageStore(dataFolder);
         this.bridge = bridge;
     }
 
@@ -36,6 +46,8 @@ public class GroupChatService {
         groupManager.save();
         messageStore.save();
         historyStore.save();
+        knownPlayers.save();
+        joinMessages.save();
     }
 
     /** If player has exactly one group, return its name; otherwise empty. */
@@ -485,6 +497,172 @@ public class GroupChatService {
         return messageStore.getUnreadCount(uuid);
     }
 
+    // ---- Server-wide announcements ----
+
+    /**
+     * Sends an announcement to every player on the server: online players get
+     * it in chat immediately (plus an on-screen highlight when requested),
+     * offline players get it queued in their mailbox for their next join.
+     * The sender may be null for console/scheduler use. Message text supports
+     * the {@link MarkdownFormat} styling subset.
+     */
+    public CommandResult sendServerAnnouncement(UUID sender, String message, boolean highlight) {
+        String sanitized = validateAndSanitizeMessage(message);
+        if (sanitized == null) {
+            if (message != null && ChatFormat.sanitizeUserText(message).trim().length() > MessageStore.MAX_MESSAGE_LENGTH) {
+                return CommandResult.fail("&cAnnouncement too long (max " + MessageStore.MAX_MESSAGE_LENGTH + " characters).");
+            }
+            return CommandResult.fail("&cAnnouncement cannot be empty.");
+        }
+
+        String body = MarkdownFormat.toMinecraft(sanitized);
+        String chatLine = (highlight ? ANNOUNCE_HIGHLIGHT_PREFIX : ANNOUNCE_PREFIX) + body;
+        String senderName = sender != null ? bridge.getName(sender) : SENDER_NAME_SERVER;
+        long now = System.currentTimeMillis();
+
+        Set<UUID> recipients = new LinkedHashSet<>(bridge.getOnlinePlayerUuids());
+        recipients.addAll(knownPlayers.getAll());
+
+        int live = 0;
+        int queued = 0;
+        int failed = 0;
+        for (UUID recipient : recipients) {
+            if (bridge.isOnline(recipient)) {
+                bridge.sendMessage(recipient, chatLine);
+                if (highlight) {
+                    bridge.sendHighlight(recipient, body);
+                }
+                live++;
+            } else {
+                PendingMessage mail = new PendingMessage(sender, senderName, null, sanitized, now,
+                        PendingMessage.TYPE_ANNOUNCEMENT);
+                if (messageStore.addMessage(recipient, mail)) {
+                    queued++;
+                } else {
+                    failed++;
+                }
+            }
+        }
+        LOGGER.log(Level.INFO, "Announcement from {0} (highlight={1}): delivered live to {2}, queued for {3}, failed {4}",
+                new Object[]{senderName, highlight, live, queued, failed});
+
+        StringBuilder feedback = new StringBuilder("&7Announcement delivered: &e").append(live)
+                .append("&7 online, &e").append(queued).append("&7 offline (queued).");
+        if (failed > 0) {
+            feedback.append(" &c").append(failed).append(" mailbox(es) full - skipped.");
+        }
+        return CommandResult.ok(feedback.toString());
+    }
+
+    // ---- Join messages ----
+
+    /**
+     * Called by platform join hooks. Records the player in the known-players
+     * registry (which server-wide announcements deliver against) and returns
+     * the join messages due to this player, honouring the cooldown. Returned
+     * lines are already styled and colour-coded; empty when nothing to show.
+     */
+    public List<String> handlePlayerJoined(UUID player) {
+        knownPlayers.record(player);
+        List<String> stored = joinMessages.getMessages();
+        if (stored.isEmpty() || !joinMessages.tryMarkShown(player, System.currentTimeMillis())) {
+            return List.of();
+        }
+        List<String> lines = new ArrayList<>(stored.size());
+        for (String raw : stored) {
+            lines.add(ChatFormat.color(MarkdownFormat.toMinecraft(raw)));
+        }
+        return lines;
+    }
+
+    /** Adds a join message. Text supports the {@link MarkdownFormat} styling subset. */
+    public CommandResult addJoinMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return CommandResult.fail("&cJoin message cannot be empty.");
+        }
+        String sanitized = ChatFormat.sanitizeUserText(message).trim();
+        if (sanitized.length() > JoinMessageStore.MAX_MESSAGE_LENGTH) {
+            return CommandResult.fail("&cJoin message too long (max " + JoinMessageStore.MAX_MESSAGE_LENGTH + " characters).");
+        }
+        if (!joinMessages.add(sanitized)) {
+            return CommandResult.fail("&cToo many join messages (max " + JoinMessageStore.MAX_MESSAGES + "). Remove one first.");
+        }
+        return CommandResult.ok("&aJoin message #" + joinMessages.getMessageCount() + " added.");
+    }
+
+    public CommandResult removeJoinMessage(int id) {
+        if (id < 1 || id > joinMessages.getMessageCount()) {
+            return CommandResult.fail("&cNo join message with id " + id + ". Use &e/joinmsg list&c to see ids.");
+        }
+        joinMessages.removeAt(id - 1);
+        return CommandResult.ok("&aRemoved join message #" + id + ".");
+    }
+
+    public CommandResult clearJoinMessages() {
+        joinMessages.clear();
+        return CommandResult.ok("&aAll join messages removed.");
+    }
+
+    public CommandResult setJoinMessageCooldown(int minutes) {
+        if (minutes < 0 || minutes > JoinMessageStore.MAX_COOLDOWN_MINUTES) {
+            return CommandResult.fail("&cCooldown must be between 0 and " + JoinMessageStore.MAX_COOLDOWN_MINUTES + " minutes.");
+        }
+        joinMessages.setCooldownMinutes(minutes);
+        if (minutes == 0) {
+            return CommandResult.ok("&aCooldown cleared - join messages now show on every join.");
+        }
+        return CommandResult.ok("&aJoin messages now show at most once every &e" + minutes
+                + " &aminutes per player (per message set).");
+    }
+
+    public CommandResult listJoinMessages() {
+        List<String> stored = joinMessages.getMessages();
+        if (stored.isEmpty()) {
+            return CommandResult.ok("&7No join messages configured. Add one with &e/joinmsg add <message>&7.");
+        }
+        StringBuilder sb = new StringBuilder("&eJoin messages (cooldown: &a")
+                .append(joinMessages.getCooldownMinutes()).append(" min&e)&7:");
+        for (int i = 0; i < stored.size(); i++) {
+            sb.append("\n&7#").append(i + 1).append(": &r").append(stored.get(i));
+        }
+        return CommandResult.ok(sb.toString());
+    }
+
+    /** Number of configured join messages - handy for tab completion of remove ids. */
+    public int getJoinMessageCount() {
+        return joinMessages.getMessageCount();
+    }
+
+    public int getJoinMessageCooldown() {
+        return joinMessages.getCooldownMinutes();
+    }
+
+    /** Renders the join messages as they would appear in-game, without cooldown checks. */
+    public List<String> previewJoinMessages() {
+        List<String> stored = joinMessages.getMessages();
+        if (stored.isEmpty()) {
+            return List.of(ChatFormat.color("&7No join messages configured. Add one with &e/joinmsg add <message>&7."));
+        }
+        List<String> lines = new ArrayList<>();
+        lines.add(ChatFormat.color("&e--- Join message preview (" + stored.size() + ") ---"));
+        for (String raw : stored) {
+            lines.add(ChatFormat.color(MarkdownFormat.toMinecraft(raw)));
+        }
+        return lines;
+    }
+
+    /** Formats one mailbox entry for /unread, per message type. */
+    private static String formatMailboxLine(PendingMessage m) {
+        String from = ChatFormat.sanitizeUserText(m.getFromName());
+        String msg = ChatFormat.sanitizeUserText(m.getMessage());
+        if (PendingMessage.TYPE_ANNOUNCEMENT.equals(m.getType())) {
+            return ANNOUNCE_PREFIX + MarkdownFormat.toMinecraft(msg);
+        }
+        String ctx = m.getContext() != null ? ChatFormat.sanitizeUserText(m.getContext()) : null;
+        String context = ctx != null ? "&8[&d" + ctx + "&8] " : "&8[&bPM&8] ";
+        return context + "&f" + from + "&7: &f" + msg;
+    }
+
     /** Formats all pending messages for display and clears the mailbox. */
     public List<String> viewAndClearUnread(UUID uuid) {
         List<PendingMessage> messages = messageStore.getMessages(uuid);
@@ -494,11 +672,7 @@ public class GroupChatService {
         List<String> lines = new ArrayList<>();
         lines.add(ChatFormat.color("&e--- " + messages.size() + " unread message" + (messages.size() == 1 ? "" : "s") + " ---"));
         for (PendingMessage m : messages) {
-            String ctx = m.getContext() != null ? ChatFormat.sanitizeUserText(m.getContext()) : null;
-            String from = ChatFormat.sanitizeUserText(m.getFromName());
-            String msg = ChatFormat.sanitizeUserText(m.getMessage());
-            String context = ctx != null ? "&8[&d" + ctx + "&8] " : "&8[&bPM&8] ";
-            lines.add(ChatFormat.color(context + "&f" + from + "&7: &f" + msg));
+            lines.add(ChatFormat.color(formatMailboxLine(m)));
         }
         messageStore.clearMessages(uuid);
         return lines;
@@ -524,11 +698,7 @@ public class GroupChatService {
         List<String> lines = new ArrayList<>();
         lines.add(ChatFormat.color("&e--- Unread " + total + " messages — page " + page + "/" + totalPages + " ---"));
         for (PendingMessage m : messages) {
-            String ctx = m.getContext() != null ? ChatFormat.sanitizeUserText(m.getContext()) : null;
-            String from = ChatFormat.sanitizeUserText(m.getFromName());
-            String msg = ChatFormat.sanitizeUserText(m.getMessage());
-            String context = ctx != null ? "&8[&d" + ctx + "&8] " : "&8[&bPM&8] ";
-            lines.add(ChatFormat.color(context + "&f" + from + "&7: &f" + msg));
+            lines.add(ChatFormat.color(formatMailboxLine(m)));
         }
         if (totalPages > 1) {
             lines.add(ChatFormat.color("&7Use &e/unread " + (page < totalPages ? page + 1 : 1) + "&7 to see "

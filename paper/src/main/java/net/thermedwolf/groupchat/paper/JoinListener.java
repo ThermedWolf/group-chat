@@ -6,6 +6,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 
+import java.util.UUID;
+
 public class JoinListener implements Listener {
 
     private final GroupChatService service;
@@ -16,14 +18,21 @@ public class JoinListener implements Listener {
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
-        int unread = service.getUnreadCount(event.getPlayer().getUniqueId());
+        UUID player = event.getPlayer().getUniqueId();
+        // Registers the player for server-wide announcements + delivers any
+        // configured join messages (respecting the cooldown).
+        for (String line : service.handlePlayerJoined(player)) {
+            event.getPlayer().sendMessage(line);
+        }
+
+        int unread = service.getUnreadCount(player);
         if (unread > 0) {
             event.getPlayer().sendMessage(ChatFormat.color(
                     "&e[GroupChat] &7You have &e" + unread + " &7unread message" + (unread == 1 ? "" : "s")
                             + ". Type &e/unread &7to view them."));
         }
 
-        String inviteNotice = service.getPendingInviteNotice(event.getPlayer().getUniqueId());
+        String inviteNotice = service.getPendingInviteNotice(player);
         if (inviteNotice != null) {
             event.getPlayer().sendMessage(ChatFormat.color(inviteNotice));
         }

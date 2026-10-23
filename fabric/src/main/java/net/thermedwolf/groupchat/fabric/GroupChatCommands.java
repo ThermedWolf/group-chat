@@ -8,6 +8,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.thermedwolf.groupchat.core.ChatFormat;
 import net.thermedwolf.groupchat.core.CommandResult;
 import net.thermedwolf.groupchat.core.GroupChatService;
+import net.thermedwolf.groupchat.core.JoinMessageStore;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
@@ -254,6 +255,75 @@ public class GroupChatCommands {
             GroupChatMod.gui.openMainMenu(player(ctx.getSource()));
             return 1;
         }));
+
+        registerAnnounceCommand(dispatcher);
+        registerJoinMsgCommand(dispatcher);
+    }
+
+    /**
+     * /announce [highlight] <message> - server-wide announcement, admin-only
+     * (gamemaster permission level, console allowed).
+     */
+    private static void registerAnnounceCommand(CommandDispatcher<CommandSourceStack> dispatcher) {
+        dispatcher.register(literal("announce")
+                .requires(GroupChatCommands::hasGamemasterPermission)
+                .then(literal("highlight")
+                        .then(argument("message", StringArgumentType.greedyString())
+                                .executes(ctx -> {
+                                    CommandResult result = service().sendServerAnnouncement(
+                                            sourceUuidOrNull(ctx.getSource()),
+                                            StringArgumentType.getString(ctx, "message"),
+                                            true);
+                                    sendResult(ctx.getSource(), result);
+                                    return 1;
+                                })))
+                .then(argument("message", StringArgumentType.greedyString())
+                        .executes(ctx -> {
+                            CommandResult result = service().sendServerAnnouncement(
+                                    sourceUuidOrNull(ctx.getSource()),
+                                    StringArgumentType.getString(ctx, "message"),
+                                    false);
+                            sendResult(ctx.getSource(), result);
+                            return 1;
+                        })));
+    }
+
+    /**
+     * /joinmsg - manage the automatic messages shown to players when they
+     * join (with a configurable cooldown), admin-only, console allowed
+     * except preview.
+     */
+    private static void registerJoinMsgCommand(CommandDispatcher<CommandSourceStack> dispatcher) {
+        dispatcher.register(literal("joinmsg")
+                .requires(GroupChatCommands::hasGamemasterPermission)
+                .then(literal("add")
+                        .then(argument("message", StringArgumentType.greedyString())
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().addJoinMessage(StringArgumentType.getString(ctx, "message"))))))
+                .then(literal("list").executes(ctx -> run(ctx.getSource(), src -> service().listJoinMessages())))
+                .then(literal("remove")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().removeJoinMessage(IntegerArgumentType.getInteger(ctx, "id"))))))
+                .then(literal("clear").executes(ctx -> run(ctx.getSource(), src -> service().clearJoinMessages())))
+                .then(literal("cooldown")
+                        .then(argument("minutes", IntegerArgumentType.integer(0, JoinMessageStore.MAX_COOLDOWN_MINUTES))
+                                .executes(ctx -> run(ctx.getSource(),
+                                        src -> service().setJoinMessageCooldown(IntegerArgumentType.getInteger(ctx, "minutes")))))
+                        .executes(ctx -> {
+                            CommandSourceStack source = ctx.getSource();
+                            source.sendSuccess(() -> Component.literal(ChatFormat.color(
+                                    "&7Current join message cooldown: &e" + service().getJoinMessageCooldown()
+                                            + " &7minutes (0 = every join).")), false);
+                            return 1;
+                        }))
+                .then(literal("preview").executes(ctx -> {
+                    CommandSourceStack source = ctx.getSource();
+                    for (String line : service().previewJoinMessages()) {
+                        source.sendSuccess(() -> Component.literal(line), false);
+                    }
+                    return 1;
+                })));
     }
 
     /**
@@ -402,6 +472,26 @@ public class GroupChatCommands {
 
     private static GroupChatService service() {
         return GroupChatMod.service;
+    }
+
+    /**
+     * Gate for admin commands. Minecraft 26.3 replaced the old
+     * {@code hasPermission(int)} with level-based permission sets;
+     * GAMEMASTERS is the level previously written as {@code hasPermission(2)}.
+     */
+    private static boolean hasGamemasterPermission(CommandSourceStack source) {
+        return source.permissions().hasPermission(
+                new net.minecraft.server.permissions.Permission.HasCommandLevel(
+                        net.minecraft.server.permissions.PermissionLevel.GAMEMASTERS));
+    }
+
+    /** Player UUID if the source is a player, null for console/command blocks. */
+    private static java.util.UUID sourceUuidOrNull(CommandSourceStack source) {
+        try {
+            return source.getPlayerOrException().getUUID();
+        } catch (CommandSyntaxException e) {
+            return null;
+        }
     }
 
     /**

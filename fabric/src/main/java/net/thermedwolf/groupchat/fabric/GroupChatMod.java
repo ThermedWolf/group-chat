@@ -36,6 +36,12 @@ public class GroupChatMod implements DedicatedServerModInitializer {
                 return;
             }
             ServerPlayer player = handler.player;
+            // Registers the player for server-wide announcements + delivers any
+            // configured join messages (respecting the cooldown).
+            for (String line : service.handlePlayerJoined(player.getUUID())) {
+                player.sendSystemMessage(Component.literal(line));
+            }
+
             int unread = service.getUnreadCount(player.getUUID());
             if (unread > 0) {
                 player.sendSystemMessage(Component.literal("\u00A7e[GroupChat] \u00A77You have \u00A7e" + unread

@@ -31,3 +31,11 @@ commands:
   groupgui:
     description: Open the GroupChat menu
     usage: "/groupgui"
+  announce:
+    description: Server-wide announcement - live for online players, queued for offline ones
+    usage: "/announce [highlight] <message>"
+    permission: groupchat.admin
+  joinmsg:
+    description: Manage the automatic messages shown to players when they join
+    usage: "/joinmsg <add|list|remove|clear|cooldown|preview> [args]"
+    permission: groupchat.admin

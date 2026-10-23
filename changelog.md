@@ -6,6 +6,39 @@ This project follows [Semantic Versioning](https://semver.org/). The initial pub
 
 ---
 
+## [Unreleased] - 2.1.0
+
+### Added
+
+- **Server-wide announcements** (`/announce [highlight] <message>`):
+  - Delivered live to every online player; queued in the mailbox of every known offline player (via `/unread` on next join).
+  - `highlight` argument adds on-screen emphasis on top of the chat line: subtitle-style title + level-up sound on Paper, action-bar overlay on Fabric.
+  - Admin-only: `groupchat.admin` (Paper, default op) / gamemaster permission level (Fabric). Console can send (scheduler-friendly). Feedback summarises live/queued/full-mailbox counts.
+  - Recipient set: every player who has joined since install, tracked in new `known-players.json` (`KnownPlayerStore`). Chosen over per-platform offline-player enumeration (Paper's `getOfflinePlayers()` has no Fabric equivalent) so behaviour is identical on both platforms.
+- **Automatic join messages** (`/joinmsg add|list|remove|clear|cooldown|preview`):
+  - Admin-configured messages shown to each player on join (max 10 × 300 chars), stored in `joinmessages.json` (`JoinMessageStore`).
+  - Per-player cooldown in minutes counts from the last actual show: `cooldown 30` → "joins 3× within 30 minutes, sees the message once". `0` = every join. "Last shown" state persisted (30-day retention).
+  - `preview` renders them as a joining player would see them, ignoring the cooldown.
+  - Same permission model as `/announce`; console can manage everything except preview.
+- **Message styling** (`MarkdownFormat`, core): Markdown/MiniMessage-style subset → legacy `§` codes, identical on both platforms. `**bold**`, `*italic*`, `__underline__`, `~~strike~~`, `||spoiler||`, `` `code` ``, all 16 colour tags (`<red>…</red>`, …), style tags (`<bold>`, `<italic>`, `<underlined>`, `<strikethrough>`, `<obfuscated>`, `<reset>` + short forms) with proper nesting (close re-applies still-open codes). Raw `§` in input stripped first; legacy `&`-codes keep working. Applies to announcements + join messages.
+- **Platform bridge additions** (`PlatformBridge`): `getOnlinePlayerUuids()` and `sendHighlight(UUID, String)` (Paper: Adventure `Title` + `Sound.ENTITY_PLAYER_LEVELUP`; Fabric: `sendOverlayMessage`).
+- **Mailbox message types** (`PendingMessage`): new `type` field (`group`/`dm`/`announcement`) with legacy-JSON fallback based on `context`; `/unread` renders announcement entries with the `[Announce]` tag.
+
+### Fixed
+
+- 26.3 API compatibility caught by compiling against the real jars:
+  - Fabric: `CommandSourceStack.hasPermission(int)` no longer exists → level-based `permissions().hasPermission(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS))` (equal to old level 2).
+  - Fabric: `Player.displayClientMessage(Component, boolean)` was renamed → `sendOverlayMessage(Component)`.
+  - Paper: switched deprecated `Player#sendTitle(String,String,int,int,int)` to Adventure `Title.title(...)` with `LegacyComponentSerializer` so `§` styling renders in titles.
+- DRY: duplicated mailbox-line rendering in `viewAndClearUnread`/`viewUnreadPage` extracted to `formatMailboxLine`.
+
+### Technical notes
+
+- New core files: `MarkdownFormat`, `KnownPlayerStore` (`known-players.json`), `JoinMessageStore` (`joinmessages.json`). New Paper files: `AnnounceCommand`, `JoinMsgCommand`. `saveAll()` includes the two new stores; both platforms deliver join messages via their existing join hooks (`JoinListener` / `ServerPlayConnectionEvents.JOIN`).
+- Verified: `:core:compileJava` (Gradle, JDK 27), full `fabric` + `paper` sources compiled with `javac` against the cached `minecraft-merged-26.3` jar + fabric-api 0.163.0 and against `paper-api 26.3.build.8-alpha` respectively; 15-case `MarkdownFormat` parser test suite passes.
+
+---
+
 ## [2.0.0] - 2026-09-17
 
 Second public release — same Paper + Fabric dual-target, now hardened, with group history and toggle-chat.

@@ -46,6 +46,8 @@ Fabric server the same as any other mod.
 | `/pm <player> <message>` | Private message; queued automatically if they're offline |
 | `/unread` | View and clear your queued/offline messages |
 | `/groupgui` | Open the graphical menu (see below) |
+| `/announce [highlight] <message>` | Server-wide announcement (admins only) — see below |
+| `/joinmsg <add\|list\|remove\|clear\|cooldown\|preview> [args]` | Manage automatic join messages (admins only) — see below |
 
 Offline members of a group, or an offline `/pm` target, get the message
 stored in their mailbox. On join, they see:
@@ -56,6 +58,69 @@ stored in their mailbox. On join, they see:
 
 Data is stored as `groups.json` and `messages.json` in the plugin/mod's
 data folder (`plugins/GroupChat/` on Paper, `<world>/groupchat/` on Fabric).
+
+## Server-wide announcements (`/announce`, admins only)
+
+```
+/announce <message>           # styled [Announce] line in chat
+/announce highlight <message> # also shows as a screen title/overlay + sound
+```
+
+Requires `groupchat.admin` on Paper (default: op) or gamemaster permission
+level on Fabric; works from console. Every player receives it:
+
+- **Online players** get the chat line immediately — plus, with `highlight`,
+  the message as an on-screen title (Paper: subtitle-style title + level-up
+  sound; Fabric: action-bar overlay above the hotbar).
+- **Offline players** get it queued in their mailbox and see it via `/unread`
+  (or the join reminder) the next time they log in.
+
+The recipient list is everyone the mod has ever seen join, tracked in
+`known-players.json` (built automatically as players join, so a fresh install
+picks players up the first time they connect after installing). This is why
+there's no per-platform "all offline players" API: Paper has one, Fabric
+doesn't, and this way both behave identically.
+
+## Automatic join messages (`/joinmsg`, admins only)
+
+Messages you configure here are shown to every player when they join:
+
+```
+/joinmsg add <message>        # add one (max 10, max 300 chars each)
+/joinmsg list                 # numbered list + current cooldown
+/joinmsg remove <id>          # remove by list number
+/joinmsg clear                # remove all
+/joinmsg cooldown <minutes>   # show at most once per window (0 = every join)
+/joinmsg preview              # render them as a joining player would see them
+```
+
+The cooldown is per player and counts from the moment they actually last saw
+the messages: with `cooldown 30`, someone who joins three times within 30
+minutes only sees them the first time, and they show again on the first join
+after the 30 minutes are up. Players who joined before the cooldown was
+configured simply start fresh. Stored in `joinmessages.json` together with
+the per-player "last shown" timestamps (30-day retention).
+
+## Message styling (announcements & join messages)
+
+Both features accept a small Markdown/MiniMessage-style subset, translated to
+Minecraft's native chat codes, identical on Paper and Fabric:
+
+| Input | Effect |
+|---|---|
+| `**text**` | Bold |
+| `*text*` | Italic |
+| `__text__` | Underline |
+| `~~text~~` | Strikethrough |
+| `||text||` | Spoiler (obfuscated/magic) |
+| `` `text` `` | Gray "code" colour |
+| `<red>text</red>` | Colour tags — all 16 (`red`, `gold`, `aqua`, `dark_gray`, `yellow`, `white`, …) |
+| `<bold>`, `<italic>`, `<underlined>`, `<strikethrough>`, `<obfuscated>`, `<reset>` | Style tags (short forms `<b>`, `<i>`, `<u>`, `<s>` also work) |
+| `&a`-style legacy codes | Still work as before |
+
+Nesting works properly — closing an inner tag re-applies everything still
+open, so `<red>Server event <bold>starts now</bold>, be there!</red>` renders
+"starts now" bold but the rest stays red. Legacy `&`-codes can be mixed in.
 
 ## GUI (`/groupgui`)
 

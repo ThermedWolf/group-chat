@@ -7,6 +7,8 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.NameAndId;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,6 +41,27 @@ public class FabricPlatformBridge implements PlatformBridge {
         if (player != null) {
             player.sendSystemMessage(Component.literal(ChatFormat.color(message)));
         }
+    }
+
+    @Override
+    public void sendHighlight(UUID uuid, String message) {
+        ServerPlayer player = server.getPlayerList().getPlayer(uuid);
+        if (player == null) {
+            return;
+        }
+        // Overlay (action-bar) message: shows above the hotbar for a few
+        // seconds. Verified against the real 26.3 jar - the pre-26.3
+        // displayClientMessage(Component, boolean) was renamed to this.
+        player.sendOverlayMessage(Component.literal(message));
+    }
+
+    @Override
+    public List<UUID> getOnlinePlayerUuids() {
+        List<UUID> uuids = new ArrayList<>();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            uuids.add(player.getUUID());
+        }
+        return uuids;
     }
 
     @Override
