@@ -66,8 +66,8 @@ public class GroupChatCommands {
                 .then(groupGuiBuilder())
                 .then(announceBuilder())
                 .then(joinMsgBuilder()));
-        dispatcher.register(literal("groupchat").redirect(gcNode));
-        dispatcher.register(literal("gchat").redirect(gcNode));
+        dispatcher.register(literal("groupchat").executes(GroupChatCommands::printUmbrellaHelp).redirect(gcNode));
+        dispatcher.register(literal("gchat").executes(GroupChatCommands::printUmbrellaHelp).redirect(gcNode));
     }
 
     private static int printUmbrellaHelp(CommandContext<CommandSourceStack> ctx) {

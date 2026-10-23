@@ -29,10 +29,6 @@ public class ComposeSession {
      * other types.
      */
     public record Pending(Target type, String target) {
-        public boolean isGroup() {
-            return type == Target.GROUP;
-        }
-
         public boolean isHighlight() {
             return type == Target.ANNOUNCE_HIGHLIGHT;
         }

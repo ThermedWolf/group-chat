@@ -131,6 +131,10 @@ public class JoinMessageStore {
             if (loaded != null) {
                 messages.clear();
                 for (String message : loaded.messages) {
+                    if (messages.size() >= MAX_MESSAGES) {
+                        LOGGER.warning("Truncated join messages from joinmessages.json to " + MAX_MESSAGES + " entries");
+                        break;
+                    }
                     if (message != null && !message.isBlank() && message.length() <= MAX_MESSAGE_LENGTH) {
                         messages.add(message);
                     } else {

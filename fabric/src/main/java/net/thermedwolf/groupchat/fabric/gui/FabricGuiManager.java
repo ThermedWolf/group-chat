@@ -151,15 +151,26 @@ public class FabricGuiManager {
                 "&80 = show on every join");
     }
 
-    /** Next cooldown preset in the given direction, wrapping around. */
+    /**
+     * Next cooldown preset in the given direction, wrapping around. Values
+     * that aren't a preset (e.g. set via the command to 45) snap to the next
+     * preset above (increasing) or below (decreasing).
+     */
     static int nextCooldown(int currentMinutes, int direction) {
-        for (int i = 0; i < COOLDOWN_PRESETS.length; i++) {
-            if (COOLDOWN_PRESETS[i] == currentMinutes) {
-                int next = (i + direction + COOLDOWN_PRESETS.length) % COOLDOWN_PRESETS.length;
-                return COOLDOWN_PRESETS[next];
+        if (direction >= 1) {
+            for (int preset : COOLDOWN_PRESETS) {
+                if (preset > currentMinutes) {
+                    return preset;
+                }
+            }
+            return COOLDOWN_PRESETS[0];
+        }
+        for (int i = COOLDOWN_PRESETS.length - 1; i >= 0; i--) {
+            if (COOLDOWN_PRESETS[i] < currentMinutes) {
+                return COOLDOWN_PRESETS[i];
             }
         }
-        return COOLDOWN_PRESETS[0];
+        return COOLDOWN_PRESETS[COOLDOWN_PRESETS.length - 1];
     }
 
     // ---- My Groups list ----

@@ -31,6 +31,13 @@ public class GuiListener implements Listener {
         }
         // Every one of our menus is click-to-act, not click-to-take.
         event.setCancelled(true);
+        // Ignore clicks in the player's own inventory - the holder check below
+        // is the top inventory of the view and would otherwise map hotbar
+        // slots onto our menu actions (e.g. deleting join messages).
+        if (event.getClickedInventory() == null
+                || !event.getClickedInventory().equals(event.getView().getTopInventory())) {
+            return;
+        }
 
         if (!(event.getWhoClicked() instanceof Player player)) {
             return;
